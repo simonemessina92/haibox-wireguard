@@ -24,10 +24,19 @@ fi
 
 echo "[INFO] Checking latest HAIBOX WireGuard release..."
 
+# Download the complete GitHub API response first.
+# This avoids SIGPIPE / curl error 23 on systems where downstream
+# commands close the pipe before curl has finished writing.
+if ! LATEST_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest")"; then
+    echo "[ERR] Unable to query the latest HAIBOX WireGuard release."
+    exit 1
+fi
+
 LATEST_TAG="$(
-    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
-    grep -m1 '"tag_name":' |
-    cut -d '"' -f 4
+    printf '%s\n' "${LATEST_JSON}" |
+    grep '"tag_name":' |
+    cut -d '"' -f 4 |
+    head -n1
 )"
 
 if [[ -z "${LATEST_TAG}" ]]; then
