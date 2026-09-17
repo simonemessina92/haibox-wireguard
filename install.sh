@@ -3,7 +3,7 @@ set -euo pipefail
 
 REPO_RAW="https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main"
 SCRIPT_NAME="haibox_VPN_https_def6.sh"
-INSTALL_PATH="/usr/local/sbin/haibox-wireguard"
+INSTALL_PATH="/root/haibox-wireguard.sh"
 
 if [[ "${EUID}" -ne 0 ]]; then
     echo "[ERR] Run this installer as root."
