@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO_RAW="https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main"
-SCRIPT_NAME="haibox_VPN_https_def6.sh"
+REPO="simonemessina92/haibox-wireguard"
 INSTALL_PATH="/root/haibox-wireguard.sh"
 
 if [[ "${EUID}" -ne 0 ]]; then
@@ -16,21 +15,53 @@ echo " HAIBOX WireGuard Installer"
 echo "============================================"
 echo
 
+# Ensure curl is available
 if ! command -v curl >/dev/null 2>&1; then
     echo "[INFO] Installing curl..."
     apt-get update -y
     apt-get install -y curl ca-certificates
 fi
 
-echo "[INFO] Downloading HAIBOX WireGuard..."
+echo "[INFO] Checking latest HAIBOX WireGuard release..."
 
-curl -fsSL \
-    "${REPO_RAW}/${SCRIPT_NAME}" \
-    -o "${INSTALL_PATH}"
+LATEST_TAG="$(
+    curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" |
+    grep -m1 '"tag_name":' |
+    cut -d '"' -f 4
+)"
 
+if [[ -z "${LATEST_TAG}" ]]; then
+    echo "[ERR] Unable to determine the latest HAIBOX WireGuard release."
+    exit 1
+fi
+
+VERSION="${LATEST_TAG#v}"
+SCRIPT_NAME="haibox-wireguard_v${VERSION}.sh"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/${SCRIPT_NAME}"
+
+echo "[INFO] Latest release: ${LATEST_TAG}"
+echo "[INFO] Downloading ${SCRIPT_NAME}..."
+
+TEMP_FILE="$(mktemp)"
+
+if ! curl -fsSL "${DOWNLOAD_URL}" -o "${TEMP_FILE}"; then
+    echo "[ERR] Unable to download ${SCRIPT_NAME}."
+    rm -f "${TEMP_FILE}"
+    exit 1
+fi
+
+# Validate downloaded script before installation
+if ! bash -n "${TEMP_FILE}"; then
+    echo "[ERR] Downloaded script failed syntax validation."
+    rm -f "${TEMP_FILE}"
+    exit 1
+fi
+
+mv "${TEMP_FILE}" "${INSTALL_PATH}"
 chmod 700 "${INSTALL_PATH}"
 
-echo "[OK] Installed to ${INSTALL_PATH}"
+echo "[OK] HAIBOX WireGuard ${LATEST_TAG} installed."
+echo "[OK] Location: ${INSTALL_PATH}"
 echo
 echo "[INFO] Starting HAIBOX WireGuard..."
 echo
