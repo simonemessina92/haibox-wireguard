@@ -6,6 +6,18 @@ The goal is simple:
 
 > Start from a clean VPS, run a single command, follow the guided setup, and deploy the HAIBOX VPN environment.
 
+## Quick Install
+
+On a fresh Debian or Ubuntu VPS, log in as `root` and run:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main/install.sh)
+```
+
+Then follow the on-screen instructions.
+
+The installer will automatically download the latest HAIBOX WireGuard deployment script and start the interactive setup.
+
 ## Features
 
 - Automated WireGuard server configuration on the VPS
