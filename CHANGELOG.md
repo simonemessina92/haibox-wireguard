@@ -4,6 +4,14 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Changed in v6.5-dev.5
+
+- Replaced the oversized hero area with a compact header using the HAIBOX logo, rectangular navigation, and a single Logout action.
+- Redesigned Overview as a full-width operational dashboard with compact connection/build summary, direct Public Services links, live device status, and Network Statistics visible together.
+- Removed duplicated Summary and Public Services panels from the sidebar.
+- Moved the support bundle into the expandable System Information area and reduced vertical scrolling on Full HD displays.
+- The Configuration sidebar remains available only where its build, UDP, rule, and output details are relevant.
+
 ### Changed in v6.5-dev.4
 
 - Reorganized the Web UI into three clear areas: Overview, Configuration, and VPN Profiles.
