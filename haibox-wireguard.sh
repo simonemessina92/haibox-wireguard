@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.4
+# Version 6.5
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,8 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.4 Golden adds build diagnostics, support bundles, service-aware
-# monitoring and streamlined first-login authentication to the v6.3 baseline.
+# Version 6.5 Golden adds a compact operational dashboard, safe browser refresh,
+# per-device traffic visibility and clearer configuration workflows.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -60,6 +60,7 @@ WEBUI_RULE_COMMENT="HAIBOX_WEBUI"
 
 TAG_CHAIN_NAT="HAIBOX_NAT"
 TAG_CHAIN_FWD="HAIBOX_FWD"
+TAG_CHAIN_STATS="HAIBOX_STATS"
 
 ROUTER_ADMIN_PUB_PORT="8080"
 ROUTER_LUCI_PUB_PORT="8081"
@@ -181,7 +182,7 @@ save_state() {
   local key value temporary
   temporary="$(mktemp "${STATE_FILE}.XXXXXX")"
   for key in LAN_CIDR ROUTER_LAN_IP PROXMOX_IP STREAMHUB_IP HSG_IP MAKITO_ENC_IP WINDOWS_ORCH_IP \
-    EXPOSE_PROXMOX_GUI UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
+    UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
     MAKITO_ENC_UDP_FROM MAKITO_ENC_UDP_TO HSG_SRT_UDP_FROM HSG_SRT_UDP_TO PUB_IFACE PUB_IP \
     WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES; do
     value="${!key}"
@@ -204,7 +205,7 @@ init_defaults() {
   MAKITO_ENC_IP="${MAKITO_ENC_IP:-192.168.10.103}"
   WINDOWS_ORCH_IP="${WINDOWS_ORCH_IP:-192.168.10.104}"
 
-  EXPOSE_PROXMOX_GUI="$(normalize_yes_no "${EXPOSE_PROXMOX_GUI:-N}")"
+  EXPOSE_PROXMOX_GUI="Y"
   UFW_WAS_ACTIVE="$(normalize_yes_no "${UFW_WAS_ACTIVE:-N}")"
   PYTHON3_INSTALLED_BY_SCRIPT="$(normalize_yes_no "${PYTHON3_INSTALLED_BY_SCRIPT:-N}")"
 
@@ -315,11 +316,7 @@ print_config() {
   fi
   echo
   echo "  --- Proxmox ---"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  GUI:                     ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006"
-  else
-    echo "  GUI:                     disabled (${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006)"
-  fi
+  echo "  GUI:                     ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006 (always enabled)"
   echo
   echo "  --- Router ---"
   echo "  Admin HTTPS:             ${ROUTER_ADMIN_PUB_PORT} -> ${ROUTER_LAN_IP}:8080"
@@ -350,9 +347,7 @@ print_config() {
   echo
   print_extra_pf_rules
   echo "  --- Quick public access ---"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  Proxmox GUI:             https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "  Proxmox GUI:             https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   echo "  Makito X4E:              https://${PUB_IP}:${MAKITO_GUI_PUB_PORT}"
   echo "  HSG Web:                 https://${PUB_IP}:${HSG_GUI_PUB_PORT}"
   echo "  HSG SSH:                 ssh -p ${HSG_SSH_PUB_PORT} hvroot@${PUB_IP}"
@@ -392,9 +387,6 @@ prompt_config() {
 
   read -r -p "VPS public iface [${PUB_IFACE}]: " v; [[ -n "${v}" ]] && PUB_IFACE="${v}"
   read -r -p "VPS public IPv4 [${PUB_IP}]: " v; [[ -n "${v}" ]] && PUB_IP="${v}"
-
-  read -r -p "Do you want to expose Proxmox GUI on the VPN (TCP ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006)? [${EXPOSE_PROXMOX_GUI}]: " v
-  [[ -n "${v}" ]] && EXPOSE_PROXMOX_GUI="$(normalize_yes_no "${v}")"
 
   save_state
   ok "Saved ${STATE_FILE}"
@@ -550,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.4"
+SCRIPT_VERSION = "6.5"
 RELEASE_CHANNEL = "GOLDEN"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2253,7 +2245,6 @@ STATE_KEYS = [
     "HSG_IP",
     "MAKITO_ENC_IP",
     "WINDOWS_ORCH_IP",
-    "EXPOSE_PROXMOX_GUI",
     "UFW_WAS_ACTIVE",
     "WG_PORT",
     "WG_TUN_CIDR",
@@ -2281,7 +2272,6 @@ DEFAULTS = {
     "HSG_IP": "192.168.10.102",
     "MAKITO_ENC_IP": "192.168.10.103",
     "WINDOWS_ORCH_IP": "192.168.10.104",
-    "EXPOSE_PROXMOX_GUI": "N",
     "UFW_WAS_ACTIVE": "N",
     "WG_PORT": "443",
     "WG_TUN_CIDR": "10.66.66.0/24",
@@ -2481,6 +2471,31 @@ def create_session(user: str) -> str:
         "expires": time.time() + SESSION_TTL_SECONDS,
     }
     return session_id
+
+
+def set_session_flash(
+    session_id: str,
+    message: str,
+    output: str = "",
+    level: str = "info",
+    state: Optional[Dict[str, str]] = None,
+) -> None:
+    payload = SESSIONS.get(session_id)
+    if payload is not None:
+        payload["flash"] = {
+            "message": message,
+            "output": output,
+            "level": level,
+            "state": state,
+        }
+
+
+def pop_session_flash(session_id: str) -> Dict[str, object]:
+    payload = SESSIONS.get(session_id)
+    if payload is None:
+        return {}
+    flash = payload.pop("flash", {})
+    return flash if isinstance(flash, dict) else {}
 
 
 def get_session_id_from_cookie(cookie_header: Optional[str]) -> Optional[str]:
@@ -2692,11 +2707,8 @@ def management_rows(state: Dict[str, str]) -> str:
 def public_service_rows(state: Dict[str, str]) -> str:
     host = state.get("PUB_IP") or "SERVER_IP"
     rows: List[str] = []
-    if state.get("EXPOSE_PROXMOX_GUI") == "Y":
-        proxmox_url = f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"
-        rows.append(summary_row("Proxmox GUI", proxmox_url, "HTTPS reverse access", proxmox_url))
-    else:
-        rows.append(summary_row("Proxmox GUI", "Disabled", "Enable the Proxmox toggle to expose it", value_class="disabled"))
+    proxmox_url = f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"
+    rows.append(summary_row("Proxmox GUI", proxmox_url, "Always published through the VPS", proxmox_url))
 
     rows.extend([
         summary_row(
@@ -2747,6 +2759,43 @@ def public_service_rows(state: Dict[str, str]) -> str:
         ),
     ])
     return "".join(rows)
+
+
+def public_service_links(state: Dict[str, str]) -> str:
+    host = state.get("PUB_IP") or "SERVER_IP"
+    services = [
+        ("StreamHub", f"https://{host}:443"),
+        ("Makito X4E", f"https://{host}:{FIXED_PORTS['MAKITO_GUI_PUB_PORT']}"),
+        ("HSG / HMG", f"https://{host}:{FIXED_PORTS['HSG_GUI_PUB_PORT']}"),
+        ("Proxmox", f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"),
+        ("Router", f"https://{host}:{FIXED_PORTS['ROUTER_ADMIN_PUB_PORT']}"),
+        ("LuCI", f"https://{host}:{FIXED_PORTS['ROUTER_LUCI_PUB_PORT']}"),
+    ]
+    return "".join(
+        f'<a class="service-link" href="{esc(url)}" target="_blank" rel="noopener">'
+        f'<span>{esc(label)}</span><span class="external-icon" aria-hidden="true">↗</span></a>'
+        for label, url in services
+    )
+
+
+def redirect_details(state: Dict[str, str]) -> str:
+    rows = [
+        ("StreamHub HTTPS", "TCP 443", state.get("STREAMHUB_IP", DEFAULTS["STREAMHUB_IP"]), "443"),
+        ("StreamHub Alt HTTPS", "TCP 8444", state.get("STREAMHUB_IP", DEFAULTS["STREAMHUB_IP"]), "8444"),
+        ("Makito HTTPS", f"TCP {FIXED_PORTS['MAKITO_GUI_PUB_PORT']}", state.get("MAKITO_ENC_IP", DEFAULTS["MAKITO_ENC_IP"]), "443"),
+        ("HSG HTTPS", f"TCP {FIXED_PORTS['HSG_GUI_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "443"),
+        ("HSG SSH", f"TCP {FIXED_PORTS['HSG_SSH_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "22"),
+        ("HSG RTMP", f"TCP {FIXED_PORTS['HSG_RTMP_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "1935"),
+        ("Proxmox HTTPS", f"TCP {FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}", state.get("PROXMOX_IP", DEFAULTS["PROXMOX_IP"]), "8006"),
+        ("Router Admin", f"TCP {FIXED_PORTS['ROUTER_ADMIN_PUB_PORT']}", state.get("ROUTER_LAN_IP", DEFAULTS["ROUTER_LAN_IP"]), "8080"),
+        ("Router LuCI", f"TCP {FIXED_PORTS['ROUTER_LUCI_PUB_PORT']}", state.get("ROUTER_LAN_IP", DEFAULTS["ROUTER_LAN_IP"]), "8081"),
+    ]
+    return "".join(
+        '<div class="redirect-row">'
+        f'<strong>{esc(label)}</strong><span>{esc(public_port)}</span>'
+        f'<code>{esc(target_ip)}:{esc(target_port)}</code></div>'
+        for label, public_port, target_ip, target_port in rows
+    )
 
 
 def udp_range_rows(state: Dict[str, str]) -> str:
@@ -3163,11 +3212,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     web_port = state.get("WEBUI_PORT", DEFAULTS["WEBUI_PORT"])
     management_summary = management_rows(state)
     services_summary = public_service_rows(state)
+    services_links = public_service_links(state)
+    redirects_html = redirect_details(state)
     udp_summary = udp_range_rows(state)
     extra_rules_html = extra_rule_form_rows(state)
     extra_rules_summary = extra_rules_summary_rows(state)
     build = build_information()
-    default_message = "Ready. Apply refreshes WireGuard, updates DNAT and persists the firewall."
+    status_html = f'<div class="{status_class} header-status">{esc(message)}</div>' if message else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3325,6 +3376,34 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       border-color: rgba(0, 163, 224, 0.42);
       color: #ffffff;
     }}
+    .primary-navigation {{
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(5, 12, 18, 0.58);
+    }}
+    .primary-navigation .tab-button {{ flex: 1 1 150px; }}
+    .subtab-bar {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 5px;
+      margin-bottom: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.025);
+    }}
+    .subtab-button {{
+      min-height: 38px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 0;
+      box-shadow: none;
+      background: transparent;
+      color: var(--muted);
+    }}
+    .subtab-button.active {{ background: rgba(0,163,224,0.16); color: #fff; }}
+    [data-config-page][hidden] {{ display: none; }}
     .tab-page[hidden] {{
       display: none;
     }}
@@ -3474,7 +3553,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       padding: 8px 12px;
       font-size: 13px;
     }}
-    .status {{ margin: 0 0 18px 0; padding: 13px 16px; border-radius: 16px; font-size: 14px; }}
+    .status {{ margin: 0 0 18px 0; padding: 13px 16px; border-radius: 16px; font-size: 14px; white-space: pre-line; line-height: 1.5; }}
     .status.info {{ background: rgba(0, 163, 224, 0.12); color: #a8e9ff; }}
     .status.ok {{ background: var(--ok-soft); color: #a4f0c9; }}
     .status.error {{ background: var(--error-soft); color: #ffb3bc; }}
@@ -3641,7 +3720,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .dashboard-note {{ margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }}
     .network-stat-grid {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
       margin-bottom: 18px;
     }}
@@ -3702,7 +3781,105 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .legend-dot {{ width: 9px; height: 9px; border-radius: 50%; }}
     .legend-dot.rx {{ background: #12b8ff; }}
     .legend-dot.tx {{ background: #5ee6a8; }}
-    .router-panel {{ margin-top: 20px; }}
+    .traffic-table {{ margin-top:16px; border:1px solid var(--line); border-radius:16px; overflow:hidden; }}
+    .traffic-row {{ display:grid; grid-template-columns:minmax(150px,1fr) 130px 130px; align-items:center; gap:16px; padding:11px 16px; border-top:1px solid rgba(128,157,178,.11); }}
+    .traffic-row:first-child {{ border-top:0; }}
+    .traffic-row.header {{ color:var(--muted); background:rgba(128,157,178,.055); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }}
+    .traffic-device {{ display:flex; align-items:center; gap:9px; color:#eef9ff; font-weight:750; }}
+    .traffic-device-dot {{ width:8px; height:8px; border-radius:50%; background:#536676; }}
+    .traffic-row.active .traffic-device-dot {{ background:#12b8ff; box-shadow:0 0 12px rgba(18,184,255,.5); }}
+    .traffic-value {{ text-align:right; color:#c8d9e5; font-variant-numeric:tabular-nums; }}
+    .traffic-value.rx {{ color:#55ceff; }}
+    .traffic-value.tx {{ color:#7aefb9; }}
+    .profiles-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; }}
+    .profile-card {{
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(15,25,36,.98), rgba(8,15,23,.98));
+    }}
+    .profile-card-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }}
+    .profile-card-head h3 {{ margin:0; color:#fff; font-size:17px; }}
+    .profile-card-head p {{ margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.4; }}
+    .profile-badge {{ padding:5px 9px; border-radius:999px; border:1px solid rgba(0,163,224,.3); background:rgba(0,163,224,.1); color:#bcecff; font-size:11px; font-weight:800; text-transform:uppercase; }}
+    .profile-actions {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }}
+    .icon-action {{
+      display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px;
+      padding:9px 12px; border-radius:12px; border:1px solid var(--line); background:var(--panel-soft);
+      color:#e8f7ff; text-decoration:none; font-weight:750; cursor:pointer; box-shadow:none;
+    }}
+    .icon-action:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.12); }}
+    .icon-action.primary-action {{ background:rgba(0,163,224,.2); border-color:rgba(0,163,224,.45); }}
+    .download-icon {{ position:relative; width:16px; height:16px; flex:0 0 16px; border-bottom:1.8px solid currentColor; }}
+    .download-icon::before {{ content:""; position:absolute; left:7px; top:1px; height:9px; border-left:1.8px solid currentColor; }}
+    .download-icon::after {{ content:""; position:absolute; left:4px; top:6px; width:6px; height:6px; border-right:1.8px solid currentColor; border-bottom:1.8px solid currentColor; transform:rotate(45deg); }}
+    .refresh-icon {{ font-size:19px; line-height:14px; }}
+    .profile-details {{ margin-top:16px; border-top:1px solid var(--line); padding-top:14px; }}
+    .profile-details summary {{ color:var(--muted); cursor:pointer; font-weight:700; font-size:13px; }}
+    .profile-details[open] summary {{ color:#dff6ff; margin-bottom:12px; }}
+    .profile-details pre {{ max-height:300px; font-size:12px; }}
+    .compact-header {{
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) auto auto;
+      align-items: center;
+      gap: 22px;
+      min-height: 96px;
+      padding: 12px 18px 12px 24px;
+      margin-bottom: 16px;
+      border-radius: 16px;
+    }}
+    .compact-brand {{ display:flex; align-items:center; min-width:360px; grid-column:1; grid-row:1; }}
+    .compact-brand img {{ display:block; width:360px; max-height:68px; object-fit:contain; object-position:left center; }}
+    .compact-header .primary-navigation {{ grid-column:3; grid-row:1; margin:0; min-width:min(540px, 44vw); }}
+    .compact-header .logout-form {{ grid-column:4; grid-row:1; margin:0; }}
+    .compact-header .logout-button {{ min-height:42px; padding:9px 15px; border-radius:9px; box-shadow:none; background:var(--panel-soft); border:1px solid var(--line); }}
+    .header-status {{ grid-column:2; grid-row:1; margin:0; padding:8px 11px; font-size:12px; opacity:1; transition:opacity 220ms ease, transform 220ms ease; }}
+    .header-status.dismissed {{ opacity:0; transform:translateY(-3px); pointer-events:none; }}
+    .primary-navigation {{ border-radius:12px; }}
+    .primary-navigation .tab-button {{ border-radius:8px; min-height:42px; }}
+    .layout.focus-mode {{ grid-template-columns: minmax(0, 1fr); }}
+    .layout.focus-mode .aside {{ display:none; }}
+    .control-panel {{ border-radius:16px; box-shadow:0 14px 34px rgba(0,0,0,.24); }}
+    .control-panel > .panel-body {{ padding:16px; }}
+    .control-heading {{ display:none; }}
+    .status {{ margin-bottom:14px; padding:10px 13px; border-radius:9px; }}
+    .overview-summary {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-bottom:12px; }}
+    .overview-metric {{ min-height:66px; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:var(--panel-soft); }}
+    .overview-metric span {{ display:block; margin-bottom:5px; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; }}
+    .overview-metric strong {{ display:block; color:#fff; font-size:14px; overflow-wrap:anywhere; }}
+    .overview-services {{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }}
+    .overview-services-label {{ margin-right:3px; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }}
+    .service-link {{ display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#e8f7ff; text-decoration:none; font-size:12px; font-weight:700; }}
+    .service-link:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.10); }}
+    .external-icon {{ color:var(--brand); font-size:14px; }}
+    .redirect-details {{ position:relative; }}
+    .redirect-details summary {{ display:inline-flex; align-items:center; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#cde8f5; cursor:pointer; font-size:12px; font-weight:700; list-style:none; }}
+    .redirect-details summary::-webkit-details-marker {{ display:none; }}
+    .redirect-details summary::after {{ content:"⌄"; margin-left:8px; color:var(--brand); }}
+    .redirect-details[open] summary::after {{ content:"⌃"; }}
+    .redirect-list {{ position:absolute; left:0; z-index:8; width:min(560px,86vw); margin-top:7px; padding:8px 12px; border:1px solid var(--line); border-radius:10px; background:#0b141e; box-shadow:var(--shadow); }}
+    .redirect-row {{ display:grid; grid-template-columns:minmax(140px,1fr) 90px minmax(150px,1fr); gap:12px; align-items:center; padding:8px 4px; border-top:1px solid var(--line); font-size:12px; }}
+    .redirect-row:first-child {{ border-top:0; }}
+    .redirect-row span {{ color:var(--muted); }}
+    .redirect-row code {{ color:#bfeaff; text-align:right; }}
+    .overview-workspace {{ display:grid; grid-template-columns:minmax(330px,.78fr) minmax(520px,1.42fr); gap:12px; align-items:start; }}
+    .overview-workspace .config-block {{ padding:14px; margin:0; border-radius:12px; }}
+    .overview-workspace .dashboard-card {{ padding:12px; border-radius:10px; }}
+    .overview-workspace .dashboard-card-head {{ margin-bottom:9px; }}
+    .overview-workspace .dashboard-row {{ padding:8px 10px; border-radius:8px; }}
+    .overview-workspace .dashboard-list {{ gap:6px; }}
+    .overview-workspace .network-chart-wrap {{ height:255px; min-height:220px; border-radius:10px; }}
+    .overview-workspace .network-stat-grid {{ margin-bottom:10px; }}
+    .overview-workspace .network-stat-card {{ padding:10px 12px; border-radius:9px; }}
+    .overview-workspace .network-stat-card strong {{ font-size:20px; }}
+    .overview-workspace .traffic-table {{ margin-top:10px; border-radius:10px; }}
+    .overview-workspace .traffic-row {{ grid-template-columns:minmax(130px,1fr) 100px 100px; padding:7px 11px; }}
+    .overview-workspace .dashboard-note {{ display:none; }}
+    .overview-footer {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; color:var(--muted); font-size:11px; }}
+    .system-details {{ position:relative; }}
+    .system-details summary {{ cursor:pointer; color:#cde8f5; font-weight:700; }}
+    .system-details-content {{ position:absolute; right:0; z-index:5; width:min(460px,80vw); margin-top:8px; padding:14px; border:1px solid var(--line); border-radius:12px; background:#0b141e; box-shadow:var(--shadow); }}
+    .system-details-content .summary-row {{ grid-template-columns:1fr; }}
     @media (max-width: 1180px) {{
       .hero {{
         padding: 26px 20px 22px;
@@ -3725,6 +3902,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .network-stat-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .compact-header {{ grid-template-columns:1fr auto; }}
+      .compact-brand {{ grid-column:1; grid-row:1; }}
+      .compact-header .logout-form {{ grid-column:2; grid-row:1; }}
+      .compact-header .primary-navigation {{ grid-column:1 / -1; grid-row:2; width:100%; min-width:0; }}
+      .header-status {{ grid-column:1 / -1; grid-row:3; }}
+      .overview-summary {{ grid-template-columns:repeat(3,minmax(0,1fr)); }}
+      .overview-workspace {{ grid-template-columns:1fr; }}
     }}
     * {{ min-width: 0; letter-spacing: 0 !important; }}
     .grid {{ grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }}
@@ -3741,6 +3925,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       h1 {{ font-size: 28px; }}
       .network-stat-grid {{ grid-template-columns: 1fr; }}
       .network-chart-wrap {{ height: 260px; }}
+      .compact-brand {{ min-width:0; width:calc(100% - 90px); }}
+      .compact-brand img {{ width:100%; }}
+      .compact-header .primary-navigation {{ display:grid; grid-template-columns:1fr; }}
+      .overview-summary {{ grid-template-columns:1fr 1fr; }}
+      .overview-workspace .traffic-row {{ grid-template-columns:minmax(110px,1fr) 78px 78px; gap:7px; }}
+      .overview-footer {{ align-items:flex-start; flex-direction:column; }}
+      .system-details-content {{ left:0; right:auto; width:min(440px,calc(100vw - 52px)); }}
     }}
     @media (prefers-reduced-motion: reduce) {{
       *, *::before, *::after {{ animation: none !important; transition: none !important; }}
@@ -3749,66 +3940,38 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 </head>
 <body>
   <div class="page-shell">
-    <section class="panel hero">
-      <div class="hero-logo">
-        <img src="{esc(LOGO_URL)}" alt="HAIBOX logo">
+    <header class="panel compact-header">
+      <div class="compact-brand"><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"></div>
+      <div class="tab-bar primary-navigation" role="tablist" aria-label="Control panel sections">
+        <button class="tab-button active" type="button" data-tab-target="overview">Overview</button>
+        <button class="tab-button" type="button" data-tab-target="configuration">Configuration</button>
+        <button class="tab-button" type="button" data-tab-target="profiles">VPN Profiles</button>
       </div>
-      <div class="hero-copy">
-        <h1>WireGuard Control Panel</h1>
-      </div>
-      <div class="hero-meta">
-        <div class="meta-pill">
-          <span>Public IP</span>
-          <strong>{esc(host)}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Web UI</span>
-          <strong>{esc(host)}:{esc(web_port)}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>WireGuard</span>
-          <strong>UDP {esc(state.get("WG_PORT", ""))}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Build</span>
-          <strong>v{esc(build["version"])} · {esc(build["channel"])}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Script SHA-256</span>
-          <strong title="{esc(build["sha256"])}">{esc(build["sha256"][:16])}…</strong>
-        </div>
-        <div class="meta-pill">
-          <span>VPS Uptime</span>
-          <strong>{esc(build["uptime"])}</strong>
-        </div>
-      </div>
-      <div class="hero-actions">
-        <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
-        <form class="logout-form" method="post" action="/logout">
-          <button class="logout-button" type="submit">Logout</button>
-        </form>
-      </div>
-    </section>
+      <form class="logout-form" method="post" action="/logout">
+        <button class="logout-button" type="submit">Logout</button>
+      </form>
+      {status_html}
+    </header>
 
-    <div class="layout">
-      <section class="panel">
+    <div class="layout focus-mode" id="main-layout">
+      <section class="panel control-panel">
         <div class="panel-body">
-          <div class="panel-head">
+          <div class="panel-head control-heading">
             <div>
-              <h2 class="panel-title">Configuration</h2>
-              <p class="panel-subtitle">Network, tunnel and forwarding values.</p>
+              <h2 class="panel-title">HAIBOX Control Center</h2>
+              <p class="panel-subtitle">Live status, traffic, configuration and VPN profiles.</p>
             </div>
           </div>
-          <div class="{status_class}">{esc(message or default_message)}</div>
           <form method="post" action="/apply">
-            <div class="tab-bar" role="tablist" aria-label="Configuration sections">
-              <button class="tab-button active" type="button" data-tab-target="dashboard">Dashboard</button>
-              <button class="tab-button" type="button" data-tab-target="core">Core Configuration</button>
-              <button class="tab-button" type="button" data-tab-target="extra">Extra Port Forwarding Rules</button>
-              <button class="tab-button" type="button" data-tab-target="network">Network Statistics</button>
-            </div>
-
-            <div class="tab-page" data-tab-page="dashboard">
+            <div class="tab-page" data-tab-page="overview">
+              <div class="overview-summary">
+                <div class="overview-metric"><span>Public IP</span><strong>{esc(host)}</strong></div>
+                <div class="overview-metric"><span>WireGuard Port</span><strong>UDP {esc(state.get("WG_PORT", ""))}</strong></div>
+                <div class="overview-metric"><span>Build</span><strong>v{esc(build["version"])} · {esc(build["channel"])}</strong></div>
+                <div class="overview-metric"><span>VPS Uptime</span><strong>{esc(build["uptime"])}</strong></div>
+              </div>
+              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details></div>
+              <div class="overview-workspace">
               <section class="config-block">
                 <div class="block-head">
                   <h3>HAIBOX Live Status</h3>
@@ -3834,11 +3997,54 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     </div>
                   </div>
                 </div>
-                <p class="dashboard-note">Status is sampled only while this Dashboard tab is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
+                <p class="dashboard-note">Status is sampled only while Overview is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
               </section>
+              <section class="config-block">
+                <div class="block-head">
+                  <h3>Network Statistics</h3>
+                  <p>Live WireGuard RX and TX from the HAIBOX point of view, with per-device traffic.</p>
+                </div>
+                <div class="network-stat-grid">
+                  <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
+                  <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
+                </div>
+                <div class="network-chart-wrap">
+                  <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
+                  <div class="network-chart-empty" id="network-chart-empty" hidden></div>
+                </div>
+                <div class="network-legend">
+                  <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
+                  <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
+                  <span>60 second rolling window · Mbps</span>
+                </div>
+                <div class="traffic-table" id="network-consumers">
+                  <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
+                </div>
+              </section>
+              </div>
+              <div class="overview-footer">
+                <span>Live data is sampled only while Overview is visible.</span>
+                <details class="system-details">
+                  <summary>System information</summary>
+                  <div class="system-details-content">
+                    <div class="summary-list">
+                      {summary_row("Script SHA-256", build["sha256"], "Installed source identity")}
+                      {summary_row("Operating System", build["os"], "Kernel " + build["kernel"])}
+                      {summary_row("Last Apply", build["last_apply"], "Applied-state timestamp")}
+                      {summary_row("Web UI Started", build["webui_started"], "Current service activation")}
+                    </div>
+                    <div class="config-actions-row"><a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a></div>
+                  </div>
+                </details>
+              </div>
             </div>
 
-            <div class="tab-page" data-tab-page="core" hidden>
+            <div class="tab-page" data-tab-page="configuration" hidden>
+              <div class="subtab-bar" role="tablist" aria-label="Configuration sections">
+                <button class="subtab-button active" type="button" data-config-target="core">Core</button>
+                <button class="subtab-button" type="button" data-config-target="extra">Extra Port Forwarding</button>
+              </div>
+              <div data-config-page="core">
               <section class="config-block">
               <div class="block-head">
                 <h3>Network</h3>
@@ -3864,13 +4070,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 {input_row("Makito X4E IP", "MAKITO_ENC_IP", state.get("MAKITO_ENC_IP", ""))}
                 {input_row("Windows Orchestrator IP", "WINDOWS_ORCH_IP", state.get("WINDOWS_ORCH_IP", ""))}
               </div>
-              <label class="switch-card">
-                <input type="checkbox" name="EXPOSE_PROXMOX_GUI" value="Y" {bool_checked(state.get("EXPOSE_PROXMOX_GUI", "N"))}>
-                <span>
-                  Expose Proxmox GUI on the public VPS side
-                  <small>When enabled, the summary panel shows the public HTTPS endpoint for Proxmox.</small>
-                </span>
-              </label>
             </section>
 
             <section class="config-block">
@@ -3913,9 +4112,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 {input_row("Confirm new password", "WEBUI_PASSWORD_CONFIRM", "", "password")}
               </div>
             </section>
-            </div>
+              </div>
 
-            <div class="tab-page" data-tab-page="extra" hidden>
+              <div data-config-page="extra" hidden>
               <section class="config-block">
                 <div class="block-head">
                   <h3>Extra Port Forwarding Rules</h3>
@@ -3930,53 +4129,47 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   {extra_rule_row(empty_extra_rule())}
                 </template>
               </section>
-            </div>
-            <div class="tab-page" data-tab-page="network" hidden>
-              <section class="config-block">
-                <div class="block-head">
-                  <h3>Network Statistics</h3>
-                  <p>Live WireGuard traffic on wg0. Sampling runs only while this tab is visible.</p>
-                </div>
-                <div class="network-stat-grid">
-                  <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>RX Peak</span><strong id="network-rx-peak">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>TX Peak</span><strong id="network-tx-peak">0.00 Mbps</strong></div>
-                </div>
-                <div class="network-chart-wrap">
-                  <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
-                  <div class="network-chart-empty" id="network-chart-empty" hidden></div>
-                </div>
-                <div class="network-legend">
-                  <span class="legend-item"><span class="legend-dot rx"></span>RX</span>
-                  <span class="legend-item"><span class="legend-dot tx"></span>TX</span>
-                  <span>60 second rolling window · Mbps</span>
-                </div>
-              </section>
-            </div>
+              </div>
             <div class="actions">
               <button class="primary" type="submit">Apply + Make Persistent</button>
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
             <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
+            </div>
+
+            <div class="tab-page" data-tab-page="profiles" hidden>
+              <div class="profiles-grid">
+                <section class="profile-card">
+                  <div class="profile-card-head">
+                    <div><h3>HAIBOX Router</h3><p>Current GL-AXT1800 WireGuard peer profile.</p></div>
+                    <span class="profile-badge">Router</span>
+                  </div>
+                  <div class="profile-actions">
+                    <button class="icon-action" type="button" data-copy-target="router-config" title="Copy router configuration"><span class="copy-icon" aria-hidden="true"></span><span>Copy</span></button>
+                    <a class="icon-action" href="/download-router-config" title="Download router configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
+                  </div>
+                  <details class="profile-details"><summary>View configuration</summary><pre id="router-config">{esc(router_config_text())}</pre></details>
+                </section>
+                <section class="profile-card">
+                  <div class="profile-card-head">
+                    <div><h3>Remote VPN Client</h3><p>Optional Windows, laptop or mobile peer.</p></div>
+                    <span class="profile-badge">Client</span>
+                  </div>
+                  <div class="profile-actions">
+                    <button class="icon-action primary-action" type="submit" formaction="/create-remote-client" formmethod="post"><span class="refresh-icon" aria-hidden="true">↻</span><span>Create / Refresh</span></button>
+                    <button class="icon-action" type="button" data-copy-target="remote-client-config" title="Copy remote client configuration"><span class="copy-icon" aria-hidden="true"></span><span>Copy</span></button>
+                    <a class="icon-action" href="/download-remote-client" title="Download remote client configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
+                  </div>
+                  <details class="profile-details"><summary>View configuration</summary><pre id="remote-client-config">{esc(remote_client_config_text())}</pre></details>
+                </section>
+              </div>
+            </div>
           </form>
         </div>
       </section>
 
       <aside class="aside">
-        <section class="panel summary-panel">
-          <div class="panel-body">
-            <div class="panel-head">
-              <div>
-                <h2 class="panel-title">Summary</h2>
-                <p class="panel-subtitle">Current panel and tunnel status.</p>
-              </div>
-            </div>
-            <div class="summary-list">{management_summary}</div>
-          </div>
-        </section>
-
         <section class="panel summary-panel">
           <div class="panel-body">
             <div class="panel-head">
@@ -3995,18 +4188,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             <div class="config-actions-row">
               <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
             </div>
-          </div>
-        </section>
-
-        <section class="panel summary-panel">
-          <div class="panel-body">
-            <div class="panel-head">
-              <div>
-                <h2 class="panel-title">Public Services</h2>
-                <p class="panel-subtitle">Published endpoints.</p>
-              </div>
-            </div>
-            <div class="summary-list">{services_summary}</div>
           </div>
         </section>
 
@@ -4049,53 +4230,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       </aside>
     </div>
 
-    <section class="panel router-panel">
-      <div class="panel-body">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title">Remote VPN Client</h2>
-            <p class="panel-subtitle">Optional Windows/laptop peer for direct access to the HAIBOX LAN.</p>
-          </div>
-        </div>
-        <form method="post" action="/create-remote-client">
-          <button type="submit">Create / Refresh Remote Client</button>
-        </form>
-        <div class="config-actions-row">
-          <a href="/download-remote-client">Download WireGuard .conf</a>
-          <button class="copy-button" type="button" data-copy-target="remote-client-config"><span class="copy-icon" aria-hidden="true"></span><span>Copy to Clipboard</span></button>
-        </div>
-        <pre id="remote-client-config">{esc(remote_client_config_text())}</pre>
-      </div>
-    </section>
-
-    <section class="panel router-panel">
-      <div class="panel-body">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title">Router Config</h2>
-            <p class="panel-subtitle">Current GL-AXT1800 peer file.</p>
-          </div>
-        </div>
-        <div class="config-actions-row">
-          <a href="/download-router-config">Download Router WireGuard .conf</a>
-          <button class="copy-button" type="button" data-copy-target="router-config"><span class="copy-icon" aria-hidden="true"></span><span>Copy to Clipboard</span></button>
-        </div>
-        <pre id="router-config">{esc(router_config_text())}</pre>
-      </div>
-    </section>
   </div>
   <script>
     (function() {{
-      const key = "{SESSION_STORAGE_KEY}";
-      let internalSubmit = false;
-
-      document.addEventListener("submit", function() {{
-        internalSubmit = true;
-      }}, true);
-
       const activeTabKey = "haibox_active_config_tab";
+      const activeConfigKey = "haibox_active_config_section";
       const tabButtons = document.querySelectorAll("[data-tab-target]");
       const tabPages = document.querySelectorAll("[data-tab-page]");
+      const configButtons = document.querySelectorAll("[data-config-target]");
+      const configPages = document.querySelectorAll("[data-config-page]");
+      const headerStatus = document.querySelector(".header-status");
+      if (headerStatus) {{
+        window.setTimeout(function() {{
+          headerStatus.classList.add("dismissed");
+          window.setTimeout(function() {{ headerStatus.remove(); }}, 250);
+        }}, 10000);
+      }}
 
       function activateTab(tabName) {{
         tabButtons.forEach(function(button) {{
@@ -4106,11 +4256,25 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         tabPages.forEach(function(page) {{
           page.hidden = page.dataset.tabPage !== tabName;
         }});
+        const mainLayout = document.getElementById("main-layout");
+        if (mainLayout) mainLayout.classList.toggle("focus-mode", tabName !== "configuration");
         try {{
           window.sessionStorage.setItem(activeTabKey, tabName);
         }} catch (err) {{}}
         updateNetworkPolling();
         updateDashboardPolling();
+      }}
+
+      function activateConfigTab(tabName) {{
+        configButtons.forEach(function(button) {{
+          const active = button.dataset.configTarget === tabName;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", active ? "true" : "false");
+        }});
+        configPages.forEach(function(page) {{
+          page.hidden = page.dataset.configPage !== tabName;
+        }});
+        try {{ window.sessionStorage.setItem(activeConfigKey, tabName); }} catch (err) {{}}
       }}
 
       const peerStatusList = document.getElementById("peer-status-list");
@@ -4122,7 +4286,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       let dashboardRequestActive = false;
 
       function dashboardTabIsActive() {{
-        const page = document.querySelector('[data-tab-page="dashboard"]');
+        const page = document.querySelector('[data-tab-page="overview"]');
         return !!page && !page.hidden && document.visibilityState === "visible";
       }}
 
@@ -4152,7 +4316,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           peerStatusList.innerHTML = peers.map(function(peer) {{
             const stateClass = peer.online ? "online" : "offline";
             const stateText = peer.online ? "Online" : (peer.configured ? "Offline" : "Not configured");
-            const detail = peer.configured ? handshakeText(peer.handshake_age) + " · RX " + formatBytes(peer.rx_bytes) + " · TX " + formatBytes(peer.tx_bytes) : "Peer not present on wg0";
+            const detail = peer.configured ? "Handshake " + handshakeText(peer.handshake_age) : "Peer not present on wg0";
             return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(peer.name) + '</strong>' + (peer.ip ? '<small>' + escapeHtml(peer.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + stateText + '</strong><small>' + escapeHtml(detail) + '</small></div></div>';
           }}).join("");
         }}
@@ -4162,12 +4326,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             const status = configured ? (device.status || (device.online ? "online" : "offline")) : "not_configured";
             const stateClass = status === "reachable" ? "reachable" : ((status === "online" || status === "service_online") ? "online" : "offline");
             const stateLabels = {{online:"Online", service_online:"Service Online", reachable:"Reachable", offline:"Offline", not_configured:"Not configured"}};
-            const services = Array.isArray(device.services) ? device.services : [];
-            const serviceText = services.map(function(service) {{
-              return String(service.label || "TCP") + ":" + String(service.port || "") + " " + (service.online ? "online" : "closed");
-            }}).join(" · ");
-            const icmpText = device.ping_online && device.latency_ms !== null ? "ICMP " + Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply";
-            const detail = configured ? [icmpText, serviceText].filter(Boolean).join(" · ") : "";
+            const detail = configured ? (device.ping_online && device.latency_ms !== null ? "RTT " + Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply") : "";
             return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(device.name) + '</strong>' + (device.ip ? '<small>' + escapeHtml(device.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + escapeHtml(stateLabels[status] || "Unknown") + '</strong><small>' + escapeHtml(detail) + '</small></div></div>';
           }}).join("");
         }}
@@ -4205,13 +4364,15 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       const networkEmpty = document.getElementById("network-chart-empty");
       const rxNow = document.getElementById("network-rx-now");
       const txNow = document.getElementById("network-tx-now");
-      const rxPeak = document.getElementById("network-rx-peak");
-      const txPeak = document.getElementById("network-tx-peak");
+      const consumerList = document.getElementById("network-consumers");
+      const deviceMeta = {{
+        router: "Router", streamhub: "StreamHub", hsg: "HSG / HMG",
+        makito: "Makito X4E", windows: "Windows", proxmox: "Proxmox",
+        other: "Other / VPN"
+      }};
       let networkTimer = null;
       let previousNetworkSample = null;
       let networkSamples = [];
-      let peakRx = 0;
-      let peakTx = 0;
       let displayedYMax = 10;
       let scaleHoldUntil = 0;
       let lastScaleUpdate = performance.now();
@@ -4222,8 +4383,19 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         return value.toFixed(2) + " Mbps";
       }}
 
+      function renderConsumers(rates) {{
+        const entries = Object.keys(deviceMeta).map(function(key) {{
+          const rate = rates[key] || {{}};
+          return {{ key:key, label:deviceMeta[key], rx:Number(rate.rx || 0), tx:Number(rate.tx || 0) }};
+        }});
+        if (consumerList) consumerList.innerHTML = '<div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>' + entries.map(function(item) {{
+          const active = item.rx >= 0.01 || item.tx >= 0.01;
+          return '<div class="traffic-row' + (active ? ' active' : '') + '"><span class="traffic-device"><i class="traffic-device-dot"></i>' + escapeHtml(item.label) + '</span><span class="traffic-value rx">' + formatMbps(item.rx) + '</span><span class="traffic-value tx">' + formatMbps(item.tx) + '</span></div>';
+        }}).join("");
+      }}
+
       function networkTabIsActive() {{
-        const page = document.querySelector('[data-tab-page="network"]');
+        const page = document.querySelector('[data-tab-page="overview"]');
         return !!page && !page.hidden && document.visibilityState === "visible";
       }}
 
@@ -4265,16 +4437,28 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           if (previousNetworkSample) {{
             const elapsed = (sample.timestamp - previousNetworkSample.timestamp) / 1000;
             if (elapsed > 0) {{
-              const rx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
-              const tx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
-              peakRx = Math.max(peakRx, rx);
-              peakTx = Math.max(peakTx, tx);
+              // Present traffic from the HAIBOX/device point of view. Bytes sent
+              // by the VPS into wg0 are received by HAIBOX; bytes received by
+              // the VPS from wg0 were transmitted by HAIBOX.
+              const rx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
+              const tx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
+              const deviceRates = {{}};
+              Object.keys(deviceMeta).filter(function(key) {{ return key !== "other"; }}).forEach(function(key) {{
+                const current = (sample.devices || {{}})[key] || {{}};
+                const previous = (previousNetworkSample.devices || {{}})[key] || {{}};
+                deviceRates[key] = {{
+                  rx: Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0)) * 8 / elapsed / 1000000,
+                  tx: Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) * 8 / elapsed / 1000000
+                }};
+              }});
+              const classifiedRx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.rx; }}, 0);
+              const classifiedTx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.tx; }}, 0);
+              deviceRates.other = {{ rx:Math.max(0, rx-classifiedRx), tx:Math.max(0, tx-classifiedTx) }};
               networkSamples.push({{ rx: rx, tx: tx }});
               if (networkSamples.length > 60) networkSamples.shift();
               if (rxNow) rxNow.textContent = formatMbps(rx);
               if (txNow) txNow.textContent = formatMbps(tx);
-              if (rxPeak) rxPeak.textContent = formatMbps(peakRx);
-              if (txPeak) txPeak.textContent = formatMbps(peakTx);
+              renderConsumers(deviceRates);
               drawNetworkChart();
             }}
           }}
@@ -4461,15 +4645,24 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       tabButtons.forEach(function(button) {{
         button.addEventListener("click", function() {{
-          activateTab(button.dataset.tabTarget || "dashboard");
+          activateTab(button.dataset.tabTarget || "overview");
         }});
       }});
 
-      let initialTab = "dashboard";
+      configButtons.forEach(function(button) {{
+        button.addEventListener("click", function() {{ activateConfigTab(button.dataset.configTarget || "core"); }});
+      }});
+
+      let initialTab = "overview";
       try {{
-        initialTab = window.sessionStorage.getItem(activeTabKey) || "dashboard";
+        initialTab = window.sessionStorage.getItem(activeTabKey) || "overview";
       }} catch (err) {{}}
+      if (!["overview", "configuration", "profiles"].includes(initialTab)) initialTab = "overview";
       activateTab(initialTab);
+      let initialConfigTab = "core";
+      try {{ initialConfigTab = window.sessionStorage.getItem(activeConfigKey) || "core"; }} catch (err) {{}}
+      if (!["core", "extra"].includes(initialConfigTab)) initialConfigTab = "core";
+      activateConfigTab(initialConfigTab);
 
       const extraRuleList = document.getElementById("extra-rule-list");
       const extraRuleTemplate = document.getElementById("extra-rule-template");
@@ -4528,31 +4721,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         refreshExtraRuleTitles();
       }}
 
-      window.addEventListener("pagehide", function() {{
-        if (internalSubmit) {{
-          return;
-        }}
-        try {{
-          window.sessionStorage.removeItem(key);
-        }} catch (err) {{}}
-        if (navigator.sendBeacon) {{
-          navigator.sendBeacon("/logout", "");
-        }} else {{
-          fetch("/logout", {{ method: "POST", credentials: "same-origin", keepalive: true }});
-        }}
-      }});
-
-      try {{
-        if (!window.sessionStorage.getItem(key)) {{
-          fetch("/logout", {{ method: "POST", credentials: "same-origin", keepalive: true }})
-            .finally(function() {{
-              window.location.replace("/login?reauth=1");
-            }});
-          return;
-        }}
-      }} catch (err) {{
-        window.location.replace("/login");
-      }}
     }})();
   </script>
 </body>
@@ -4669,8 +4837,7 @@ def standard_port_reservations(values: Dict[str, str]) -> Dict[str, List[Tuple[i
     add_reservation(reservations, "udp", safe_int(values.get("WG_PORT", "")), safe_int(values.get("WG_PORT", "")), "WireGuard")
     add_reservation(reservations, "tcp", safe_int(values.get("WEBUI_PORT", "")), safe_int(values.get("WEBUI_PORT", "")), "Web UI")
 
-    if values.get("EXPOSE_PROXMOX_GUI") == "Y":
-        add_reservation(reservations, "tcp", 8006, 8006, "Proxmox GUI")
+    add_reservation(reservations, "tcp", 8006, 8006, "Proxmox GUI")
 
     add_reservation(reservations, "tcp", 8080, 8080, "Router admin")
     add_reservation(reservations, "tcp", 8081, 8081, "Router LuCI")
@@ -4857,7 +5024,6 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
         "WEBUI_ENABLED": "Y",
         "WEBUI_BIND": current.get("WEBUI_BIND", "0.0.0.0"),
         "EXTRA_PF_RULES": current.get("EXTRA_PF_RULES", ""),
-        "EXPOSE_PROXMOX_GUI": "Y" if "EXPOSE_PROXMOX_GUI" in form else "N",
         "UFW_WAS_ACTIVE": current.get("UFW_WAS_ACTIVE", "N"),
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
@@ -5124,11 +5290,38 @@ def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
     return {"timestamp": int(time.time() * 1000), "applied": True, "peers": peers, "devices": devices}
 
 
+def device_traffic_counters() -> Dict[str, Dict[str, int]]:
+    counters: Dict[str, Dict[str, int]] = {}
+    try:
+        result = subprocess.run(
+            ["iptables-save", "-c", "-t", "filter"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if result.returncode != 0:
+            return counters
+        pattern = re.compile(
+            r'^\[(\d+):(\d+)\] -A HAIBOX_STATS .*--comment "?(rx|tx):([a-z0-9_-]+)"?'
+        )
+        for line in result.stdout.splitlines():
+            match = pattern.search(line)
+            if not match:
+                continue
+            direction, device = match.group(3), match.group(4)
+            counters.setdefault(device, {"rx_bytes": 0, "tx_bytes": 0})
+            counters[device][direction + "_bytes"] += int(match.group(2))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    return counters
+
+
 REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.4"
+    server_version = "HAIBOX-WebUI/6.5"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5217,6 +5410,8 @@ class Handler(BaseHTTPRequestHandler):
                 message = "Session closed. Login required."
             elif "password_changed" in query:
                 message = "Password changed. Sign in with the new password."
+            elif "credentials_changed" in query:
+                message = "Login credentials updated. Sign in again."
             else:
                 message = ""
             self.send_html(render_login_page(message))
@@ -5236,7 +5431,15 @@ class Handler(BaseHTTPRequestHandler):
             if password_change_required():
                 self.send_redirect("/change-password")
                 return
-            self.send_html(render_page(merged_state()))
+            flash = pop_session_flash(session_id)
+            flash_state = flash.get("state")
+            page_state = flash_state if isinstance(flash_state, dict) else merged_state()
+            self.send_html(render_page(
+                page_state,
+                str(flash.get("message", "")),
+                str(flash.get("output", "")),
+                str(flash.get("level", "info")),
+            ))
             return
         if not session_id:
             self.send_redirect("/login")
@@ -5252,9 +5455,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 rx_bytes = int((stats_dir / "rx_bytes").read_text(encoding="ascii").strip())
                 tx_bytes = int((stats_dir / "tx_bytes").read_text(encoding="ascii").strip())
-                self.send_json({"available": True, "timestamp": int(time.time() * 1000), "rx_bytes": rx_bytes, "tx_bytes": tx_bytes})
+                self.send_json({
+                    "available": True,
+                    "timestamp": int(time.time() * 1000),
+                    "rx_bytes": rx_bytes,
+                    "tx_bytes": tx_bytes,
+                    "devices": device_traffic_counters(),
+                })
             except (OSError, ValueError):
-                self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0})
+                self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0, "devices": {}})
             return
         if path == "/download-support-bundle":
             bundle = build_support_bundle()
@@ -5334,7 +5543,8 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        if not self.current_session_id():
+        session_id = self.current_session_id()
+        if not session_id:
             self.send_redirect(
                 "/login?reauth=1",
                 extra_headers=[("Set-Cookie", self.clear_session_cookie())],
@@ -5369,17 +5579,23 @@ class Handler(BaseHTTPRequestHandler):
             current = merged_state()
             values, errors, password = apply_form_values(form, current)
             if errors:
-                self.send_html(render_page(values, " ".join(errors), "", "error"), 400)
+                message = "Configuration not applied. Fix the following fields:\n" + "\n".join(
+                    "%d. %s" % (index, error) for index, error in enumerate(errors, 1)
+                )
+                set_session_flash(session_id, message, "", "error", values)
+                self.send_redirect("/")
                 return
 
             try:
                 write_state(values)
             except Exception as exc:
-                self.send_html(render_page(values, "Failed to write configuration: %s" % exc, "", "error"), 500)
+                set_session_flash(session_id, "Failed to write configuration: %s" % exc, "", "error", values)
+                self.send_redirect("/")
                 return
 
             rc, output = run_script("--web-apply")
-            if rc == 0 and (password or values["WEBUI_USER"] != current.get("WEBUI_USER", "")):
+            credentials_changed = bool(password or values["WEBUI_USER"] != current.get("WEBUI_USER", ""))
+            if rc == 0 and credentials_changed:
                 write_auth(values["WEBUI_USER"], password or None)
                 SESSIONS.clear()
             if rc != 0:
@@ -5395,15 +5611,24 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             if rc != 0:
-                message = "Apply failed. " + message
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+                detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "No diagnostic detail was returned.")
+                message = "Apply failed and the previous configuration was restored.\nReason: " + detail
+            if rc == 0 and credentials_changed:
+                self.send_redirect(
+                    "/login?credentials_changed=1",
+                    extra_headers=[("Set-Cookie", self.clear_session_cookie())],
+                )
+                return
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/test":
             rc, output = run_script("--web-test")
             message = "Test completed." if rc == 0 else "Test returned errors."
             level = "ok" if rc == 0 else "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/health":
@@ -5417,17 +5642,20 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 message = "System Health: ERROR."
                 level = "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/create-remote-client":
             rc, output = run_script("--create-remote-client")
             message = "Remote VPN client created. Download the .conf and import it in WireGuard." if rc == 0 else "Remote VPN client creation failed."
             level = "ok" if rc == 0 else "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
-        self.send_html(render_page(merged_state(), "Unsupported action.", "", "error"), 404)
+        set_session_flash(session_id, "Unsupported action.", "", "error")
+        self.send_redirect("/")
 
 
 class ThreadingTLSServer(ThreadingHTTPServer):
@@ -5692,6 +5920,10 @@ iptables_cleanup_chains() {
   iptables -D FORWARD -j "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
   iptables -F "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
   iptables -X "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
+
+  iptables -D FORWARD -j "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
+  iptables -F "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
+  iptables -X "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
 }
 
 # helper: add DNAT rule for BOTH public iface and wg0 (hairpin)
@@ -5751,6 +5983,25 @@ iptables_apply_rules() {
   iptables -N "${TAG_CHAIN_FWD}"
   iptables -A FORWARD -j "${TAG_CHAIN_FWD}"
 
+  # Dedicated non-terminating counters provide per-device traffic telemetry.
+  # They do not alter packet handling and are read by the Web UI.
+  iptables -N "${TAG_CHAIN_STATS}"
+  iptables -I FORWARD 1 -j "${TAG_CHAIN_STATS}"
+  local stats_name stats_ip
+  while IFS='|' read -r stats_name stats_ip; do
+    [[ -n "${stats_name}" && -n "${stats_ip}" ]] || continue
+    iptables -A "${TAG_CHAIN_STATS}" -i "${WG_NAME}" -s "${stats_ip}" -m comment --comment "rx:${stats_name}"
+    iptables -A "${TAG_CHAIN_STATS}" -o "${WG_NAME}" -d "${stats_ip}" -m comment --comment "tx:${stats_name}"
+  done <<EOF
+router|${ROUTER_LAN_IP}
+streamhub|${STREAMHUB_IP}
+hsg|${HSG_IP}
+makito|${MAKITO_ENC_IP}
+windows|${WINDOWS_ORCH_IP}
+proxmox|${PROXMOX_IP}
+EOF
+  iptables -A "${TAG_CHAIN_STATS}" -j RETURN
+
   # Internet egress NAT (support both GL masquerade modes)
   iptables -t nat -C POSTROUTING -s "${LAN_CIDR}" -o "${PUB_IFACE}" -j MASQUERADE >/dev/null 2>&1 || \
     iptables -t nat -A POSTROUTING -s "${LAN_CIDR}" -o "${PUB_IFACE}" -j MASQUERADE
@@ -5767,10 +6018,8 @@ iptables_apply_rules() {
   iptables -A "${TAG_CHAIN_FWD}" -i "${PUB_IFACE}" -o "${WG_NAME}" -j ACCEPT
   iptables -A "${TAG_CHAIN_FWD}" -i "${WG_NAME}" -o "${WG_NAME}" -j ACCEPT
 
-  # Optional Proxmox GUI
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    dnat_both tcp "${PROXMOX_GUI_PUB_PORT}" "${PROXMOX_IP}:8006"
-  fi
+  # Proxmox GUI is part of the standard HAIBOX public service map.
+  dnat_both tcp "${PROXMOX_GUI_PUB_PORT}" "${PROXMOX_IP}:8006"
 
   # Router
   dnat_both tcp "${ROUTER_ADMIN_PUB_PORT}" "${ROUTER_LAN_IP}:8080"
@@ -5886,9 +6135,7 @@ do_test() {
     echo
   fi
   echo "Client-side tests:"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  Proxmox GUI:   https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "  Proxmox GUI:   https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   if [[ "${WEBUI_ENABLED}" == "Y" ]]; then
     echo "  Web UI:        https://${PUB_IP}:${WEBUI_PORT}"
   fi
@@ -5912,7 +6159,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.4 - System Health"
+  echo " HAIBOX WireGuard v6.5 - System Health"
   echo "============================================================"
   echo
 
@@ -6123,9 +6370,7 @@ remove_all() {
 print_apply_summary() {
   echo
   echo "GL-AXT1800 WireGuard config saved to: ${ROUTER_CONF_OUT}"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "Proxmox GUI exposed on: https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "Proxmox GUI exposed on: https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   echo
   echo "GL-AXT1800 VPN options recommendation:"
   echo "  Kill Switch: ON"
@@ -6151,8 +6396,6 @@ namespace = {"__name__": "haibox_validation"}
 exec(compile(app, "haibox_webui.py", "exec"), namespace)
 state = namespace["merged_state"]()
 form = {key: [value] for key, value in state.items()}
-if state.get("EXPOSE_PROXMOX_GUI") != "Y":
-    form.pop("EXPOSE_PROXMOX_GUI", None)
 for rule in namespace["parse_extra_rules"](state.get("EXTRA_PF_RULES", "")):
     for field, value in {
         "PROTO": rule["proto"], "TARGET_IP": rule["target_ip"], "LABEL": rule["label"],
@@ -6330,7 +6573,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.4 (VPS GOLDEN)"
+    echo "HAIBOX WireGuard v6.5 (GOLDEN)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
