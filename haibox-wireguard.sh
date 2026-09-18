@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.1
+# Version 6.5-dev.2
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.1 improves session continuity, diagnostics and live network
+# Version 6.5-dev.2 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.1"
+SCRIPT_VERSION = "6.5-dev.2"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -3689,12 +3689,16 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .legend-dot {{ width: 9px; height: 9px; border-radius: 50%; }}
     .legend-dot.rx {{ background: #12b8ff; }}
     .legend-dot.tx {{ background: #5ee6a8; }}
-    .network-consumers {{ display:grid; gap:9px; margin-top:16px; }}
-    .consumer-row {{ display:grid; grid-template-columns:140px 1fr 95px 75px; align-items:center; gap:12px; color:var(--muted); font-size:12px; }}
-    .consumer-row strong {{ color:#eef9ff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
-    .consumer-bar {{ height:8px; border-radius:999px; background:rgba(128,157,178,.14); overflow:hidden; }}
-    .consumer-bar i {{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#12b8ff,#5ee6a8); box-shadow:0 0 14px rgba(18,184,255,.35); }}
-    .consumer-rate,.consumer-rtt {{ text-align:right; font-variant-numeric:tabular-nums; }}
+    .traffic-table {{ margin-top:16px; border:1px solid var(--line); border-radius:16px; overflow:hidden; }}
+    .traffic-row {{ display:grid; grid-template-columns:minmax(150px,1fr) 130px 130px; align-items:center; gap:16px; padding:11px 16px; border-top:1px solid rgba(128,157,178,.11); }}
+    .traffic-row:first-child {{ border-top:0; }}
+    .traffic-row.header {{ color:var(--muted); background:rgba(128,157,178,.055); font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.06em; }}
+    .traffic-device {{ display:flex; align-items:center; gap:9px; color:#eef9ff; font-weight:750; }}
+    .traffic-device-dot {{ width:8px; height:8px; border-radius:50%; background:#536676; }}
+    .traffic-row.active .traffic-device-dot {{ background:#12b8ff; box-shadow:0 0 12px rgba(18,184,255,.5); }}
+    .traffic-value {{ text-align:right; color:#c8d9e5; font-variant-numeric:tabular-nums; }}
+    .traffic-value.rx {{ color:#55ceff; }}
+    .traffic-value.tx {{ color:#7aefb9; }}
     .router-panel {{ margin-top: 20px; }}
     @media (max-width: 1180px) {{
       .hero {{
@@ -3921,15 +3925,11 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <section class="config-block">
                 <div class="block-head">
                   <h3>Network Statistics</h3>
-                  <p>Live WireGuard traffic, broken down by HAIBOX device. Sampling runs only while this tab is visible.</p>
+                  <p>Live WireGuard RX and TX with a fixed per-device breakdown.</p>
                 </div>
                 <div class="network-stat-grid">
                   <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
                   <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>RX Peak</span><strong id="network-rx-peak">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>TX Peak</span><strong id="network-tx-peak">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>Top Consumer</span><strong id="network-top-device">—</strong></div>
-                  <div class="network-stat-card"><span>Top RTT</span><strong id="network-top-rtt">—</strong></div>
                 </div>
                 <div class="network-chart-wrap">
                   <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
@@ -3938,9 +3938,11 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <div class="network-legend">
                   <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
                   <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
-                  <span>Device lines · 60 second rolling window · Mbps</span>
+                  <span>60 second rolling window · Mbps</span>
                 </div>
-                <div class="network-consumers" id="network-consumers"></div>
+                <div class="traffic-table" id="network-consumers">
+                  <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
+                </div>
               </section>
             </div>
             <div class="actions">
@@ -4127,11 +4129,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       function renderDashboard(payload) {{
         const peers = Array.isArray(payload.peers) ? payload.peers : [];
         const devices = Array.isArray(payload.devices) ? payload.devices : [];
-        latestDeviceLatency = {{}};
-        devices.forEach(function(device) {{
-          const key = deviceKeyFromName(device.name);
-          if (key && device.latency_ms !== null && device.latency_ms !== undefined) latestDeviceLatency[key] = Number(device.latency_ms);
-        }});
         if (peerOnlineCount) peerOnlineCount.textContent = String(peers.filter(function(p) {{ return p.online; }}).length);
         if (lanOnlineCount) lanOnlineCount.textContent = String(devices.filter(function(d) {{ return d.online; }}).length);
         if (lanTotalCount) lanTotalCount.textContent = String(devices.length);
@@ -4166,13 +4163,8 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         }});
       }}
 
-      function statusTabIsActive() {{
-        const networkPage = document.querySelector('[data-tab-page="network"]');
-        return document.visibilityState === "visible" && (dashboardTabIsActive() || (networkPage && !networkPage.hidden));
-      }}
-
       async function pollDashboard() {{
-        if (!statusTabIsActive() || dashboardRequestActive) return;
+        if (!dashboardTabIsActive() || dashboardRequestActive) return;
         dashboardRequestActive = true;
         try {{
           const response = await fetch("/api/dashboard-status", {{ cache: "no-store", credentials: "same-origin" }});
@@ -4187,7 +4179,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function updateDashboardPolling() {{
         if (dashboardTimer !== null) {{ window.clearInterval(dashboardTimer); dashboardTimer = null; }}
-        if (statusTabIsActive()) {{
+        if (dashboardTabIsActive()) {{
           pollDashboard();
           dashboardTimer = window.setInterval(pollDashboard, 5000);
         }}
@@ -4197,23 +4189,15 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       const networkEmpty = document.getElementById("network-chart-empty");
       const rxNow = document.getElementById("network-rx-now");
       const txNow = document.getElementById("network-tx-now");
-      const rxPeak = document.getElementById("network-rx-peak");
-      const txPeak = document.getElementById("network-tx-peak");
-      const topDevice = document.getElementById("network-top-device");
-      const topRtt = document.getElementById("network-top-rtt");
       const consumerList = document.getElementById("network-consumers");
       const deviceMeta = {{
-        router: ["Router", "#c084fc"], streamhub: ["StreamHub", "#ffb454"],
-        hsg: ["HSG / HMG", "#ff6b8a"], makito: ["Makito X4E", "#4dd7ff"],
-        windows: ["Windows", "#7aa2ff"], proxmox: ["Proxmox", "#9ee493"],
-        other: ["Other / VPN", "#8b98a5"]
+        router: "Router", streamhub: "StreamHub", hsg: "HSG / HMG",
+        makito: "Makito X4E", windows: "Windows", proxmox: "Proxmox",
+        other: "Other / VPN"
       }};
-      let latestDeviceLatency = {{}};
       let networkTimer = null;
       let previousNetworkSample = null;
       let networkSamples = [];
-      let peakRx = 0;
-      let peakTx = 0;
       let displayedYMax = 10;
       let scaleHoldUntil = 0;
       let lastScaleUpdate = performance.now();
@@ -4224,29 +4208,14 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         return value.toFixed(2) + " Mbps";
       }}
 
-      function deviceKeyFromName(name) {{
-        const value = String(name || "").toLowerCase();
-        if (value.indexOf("stream") >= 0) return "streamhub";
-        if (value.indexOf("hsg") >= 0 || value.indexOf("hmg") >= 0) return "hsg";
-        if (value.indexOf("makito") >= 0) return "makito";
-        if (value.indexOf("windows") >= 0) return "windows";
-        if (value.indexOf("proxmox") >= 0) return "proxmox";
-        if (value.indexOf("router") >= 0) return "router";
-        return "";
-      }}
-
       function renderConsumers(rates) {{
         const entries = Object.keys(deviceMeta).map(function(key) {{
-          return {{ key:key, label:deviceMeta[key][0], rate:Number(rates[key] || 0), rtt:latestDeviceLatency[key] }};
-        }}).sort(function(a,b) {{ return b.rate-a.rate; }});
-        const maximum = Math.max(0.001, entries.reduce(function(m,item) {{ return Math.max(m,item.rate); }}, 0));
-        if (topDevice) topDevice.textContent = entries[0] && entries[0].rate > 0.001 ? entries[0].label : "Idle";
-        const rtts = entries.filter(function(item) {{ return Number.isFinite(item.rtt); }}).sort(function(a,b) {{ return b.rtt-a.rtt; }});
-        if (topRtt) topRtt.textContent = rtts.length ? rtts[0].label + " · " + rtts[0].rtt.toFixed(1) + " ms" : "No reply";
-        if (consumerList) consumerList.innerHTML = entries.map(function(item) {{
-          const width = item.rate > 0 ? Math.max(2, item.rate / maximum * 100) : 0;
-          const rtt = Number.isFinite(item.rtt) ? item.rtt.toFixed(1) + " ms" : "—";
-          return '<div class="consumer-row"><strong>' + escapeHtml(item.label) + '</strong><span class="consumer-bar"><i style="width:' + width.toFixed(1) + '%"></i></span><span class="consumer-rate">' + formatMbps(item.rate) + '</span><span class="consumer-rtt">' + rtt + '</span></div>';
+          const rate = rates[key] || {{}};
+          return {{ key:key, label:deviceMeta[key], rx:Number(rate.rx || 0), tx:Number(rate.tx || 0) }};
+        }});
+        if (consumerList) consumerList.innerHTML = '<div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>' + entries.map(function(item) {{
+          const active = item.rx >= 0.01 || item.tx >= 0.01;
+          return '<div class="traffic-row' + (active ? ' active' : '') + '"><span class="traffic-device"><i class="traffic-device-dot"></i>' + escapeHtml(item.label) + '</span><span class="traffic-value rx">' + formatMbps(item.rx) + '</span><span class="traffic-value tx">' + formatMbps(item.tx) + '</span></div>';
         }}).join("");
       }}
 
@@ -4295,23 +4264,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             if (elapsed > 0) {{
               const rx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
               const tx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
-              peakRx = Math.max(peakRx, rx);
-              peakTx = Math.max(peakTx, tx);
               const deviceRates = {{}};
               Object.keys(deviceMeta).filter(function(key) {{ return key !== "other"; }}).forEach(function(key) {{
                 const current = (sample.devices || {{}})[key] || {{}};
                 const previous = (previousNetworkSample.devices || {{}})[key] || {{}};
-                const bytes = Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) + Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0));
-                deviceRates[key] = bytes * 8 / elapsed / 1000000;
+                deviceRates[key] = {{
+                  rx: Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) * 8 / elapsed / 1000000,
+                  tx: Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0)) * 8 / elapsed / 1000000
+                }};
               }});
-              const classifiedRate = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value; }}, 0);
-              deviceRates.other = Math.max(0, rx + tx - classifiedRate);
-              networkSamples.push({{ rx: rx, tx: tx, devices: deviceRates }});
+              const classifiedRx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.rx; }}, 0);
+              const classifiedTx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.tx; }}, 0);
+              deviceRates.other = {{ rx:Math.max(0, rx-classifiedRx), tx:Math.max(0, tx-classifiedTx) }};
+              networkSamples.push({{ rx: rx, tx: tx }});
               if (networkSamples.length > 60) networkSamples.shift();
               if (rxNow) rxNow.textContent = formatMbps(rx);
               if (txNow) txNow.textContent = formatMbps(tx);
-              if (rxPeak) rxPeak.textContent = formatMbps(peakRx);
-              if (txPeak) txPeak.textContent = formatMbps(peakTx);
               renderConsumers(deviceRates);
               drawNetworkChart();
             }}
@@ -4344,10 +4312,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         const pad = {{ left: 58, right: 20, top: 22, bottom: 34 }};
         const plotW = Math.max(1, rect.width - pad.left - pad.right);
         const plotH = Math.max(1, rect.height - pad.top - pad.bottom);
-        const maxData = networkSamples.reduce(function(maximum, point) {{
-          const deviceMax = Object.values(point.devices || {{}}).reduce(function(m, value) {{ return Math.max(m, Number(value) || 0); }}, 0);
-          return Math.max(maximum, point.rx, point.tx, deviceMax);
-        }}, 0);
+        const maxData = networkSamples.reduce(function(maximum, point) {{ return Math.max(maximum, point.rx, point.tx); }}, 0);
 
         function scaleTarget(value) {{
           if (!Number.isFinite(value) || value <= 0) return 10;
@@ -4470,25 +4435,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
         traceSeries('rx', '#12b8ff', 'rgba(18, 184, 255, 0.18)', 'rgba(18, 184, 255, 0.015)');
         traceSeries('tx', '#5ee6a8', 'rgba(94, 230, 168, 0.16)', 'rgba(94, 230, 168, 0.012)');
-
-        function traceDevice(deviceKey, color) {{
-          if (!networkSamples.length) return;
-          const points = networkSamples.map(function(point, index) {{
-            const slot = Math.max(0, 60 - networkSamples.length + index);
-            const value = Number((point.devices || {{}})[deviceKey] || 0);
-            return {{ x:pad.left + plotW * slot / 59, y:pad.top + plotH * (1 - Math.min(yMax, value) / yMax) }};
-          }});
-          ctx.beginPath();
-          points.forEach(function(point, index) {{
-            if (index === 0) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
-          }});
-          ctx.strokeStyle = color;
-          ctx.lineWidth = 1.45;
-          ctx.globalAlpha = 0.9;
-          ctx.stroke();
-          ctx.globalAlpha = 1;
-        }}
-        Object.keys(deviceMeta).forEach(function(key) {{ traceDevice(key, deviceMeta[key][1]); }});
       }}
 
       document.addEventListener("visibilitychange", function() {{ updateNetworkPolling(); updateDashboardPolling(); }});
@@ -5188,7 +5134,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.1"
+    server_version = "HAIBOX-WebUI/6.5-dev.2"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6001,7 +5947,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.1 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.2 - System Health"
   echo "============================================================"
   echo
 
@@ -6415,7 +6361,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.1 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.2 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
