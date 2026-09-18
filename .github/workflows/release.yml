@@ -1,0 +1,82 @@
+name: Publish approved HAIBOX release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/release-request.json
+
+permissions:
+  contents: write
+
+concurrency:
+  group: haibox-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out approved main commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate release request and source
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REQUEST=".github/release-request.json"
+          VERSION="$(jq -er '.version' "${REQUEST}")"
+          TITLE="$(jq -er '.title' "${REQUEST}")"
+          NOTES_FILE="$(jq -er '.notes_file' "${REQUEST}")"
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+([.][0-9]+)?$ ]]; then
+            echo "Invalid release version: ${VERSION}" >&2
+            exit 1
+          fi
+
+          TAG="v${VERSION}"
+          ASSET="haibox-wireguard_v${VERSION}.sh"
+          CHECKSUM="${ASSET}.sha256"
+
+          [[ -f haibox-wireguard.sh ]] || { echo "Missing haibox-wireguard.sh" >&2; exit 1; }
+          [[ -f "${NOTES_FILE}" ]] || { echo "Missing release notes: ${NOTES_FILE}" >&2; exit 1; }
+          bash -n haibox-wireguard.sh
+          grep -Fqx "# Version ${VERSION}" haibox-wireguard.sh || {
+            echo "Script header does not match release version ${VERSION}." >&2
+            exit 1
+          }
+
+          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "Tag ${TAG} already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+          install -m 700 haibox-wireguard.sh "${ASSET}"
+          sha256sum "${ASSET}" > "${CHECKSUM}"
+
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "title=${TITLE}" >> "${GITHUB_OUTPUT}"
+          echo "notes_file=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
+          echo "asset=${ASSET}" >> "${GITHUB_OUTPUT}"
+          echo "checksum=${CHECKSUM}" >> "${GITHUB_OUTPUT}"
+
+      - name: Create tag, GitHub Release, script, and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          TITLE: ${{ steps.release.outputs.title }}
+          NOTES_FILE: ${{ steps.release.outputs.notes_file }}
+          ASSET: ${{ steps.release.outputs.asset }}
+          CHECKSUM: ${{ steps.release.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "${TAG}" "${ASSET}" "${CHECKSUM}" \
+            --target "${GITHUB_SHA}" \
+            --title "${TITLE}" \
+            --notes-file "${NOTES_FILE}"
