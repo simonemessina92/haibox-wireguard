@@ -4,6 +4,13 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Changed in v6.5-dev.2
+
+- Simplified Network Statistics after real-world UI testing.
+- Reduced the summary to current RX and TX only.
+- The chart now contains only the two total RX/TX lines.
+- Replaced dynamic rankings, relative bars, peak cards, RTT ranking, and per-device chart lines with a fixed device table showing exact RX and TX rates.
+
 ### Added in v6.5-dev.1
 
 - Per-device live traffic accounting for Router, StreamHub, HSG/HMG, Makito X4E, Windows Orchestrator, and Proxmox, plus an `Other / VPN` category.
