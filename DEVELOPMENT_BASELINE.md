@@ -2,20 +2,18 @@
 
 ## 1. Purpose and authority
 
-This document is the engineering baseline for all development after HAIBOX WireGuard v6.3.
+This document is the engineering baseline for HAIBOX WireGuard development.
 
-- **Golden source:** `haibox-wireguard_v6.3.sh`
+- **Current Golden source:** `haibox-wireguard_v6.4.sh`
 - **Golden status:** tested on the real HAIBOX environment and working
-- **Development rule:** v6.3 is immutable. Every change starts from an exact copy and the next release is v6.4.
+- **Development rule:** released Golden assets are immutable. Every new development cycle starts from the current Golden.
 - **Conflict rule:** if previous chats, notes, memories, or older scripts disagree with the Golden file, the Golden file wins.
 - **Promotion rule:** a development build becomes a new Golden only after the mandatory regression checklist in this document passes.
 
-The uploaded Golden used to create this baseline has:
+The current Golden release has:
 
-- Version header: `6.3`
-- Size: 342,998 bytes
-- Lines: 6,096
-- SHA-256: `aa01be1c788310fd10675a437cf6efe442387e1a3dad21b8147b92bd783e35d2`
+- Version header: `6.4`
+- SHA-256: `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a`
 
 The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.3.
 
@@ -133,11 +131,13 @@ The VPS configuration must retain these routing semantics:
 
 ## 7. Web UI Golden behavior
 
-The optional Web UI is part of the v6.3 Golden, not an experimental add-on.
+The Web UI is part of the current Golden, not an experimental add-on.
 
 - HTTPS, bound by default to `0.0.0.0:65000`
 - Self-signed RSA certificate, valid for ten years, reused when already present
-- Password must be at least 12 characters during setup
+- Fresh installations use `admin` / `password` and require immediate replacement before dashboard access
+- Replacement and subsequent Web UI passwords must be at least 10 characters
+- Existing credentials are preserved during upgrades
 - PBKDF2-HMAC-SHA256 password storage with a random salt and 200,000 iterations
 - Secure, HttpOnly, SameSite=Strict session cookie
 - In-memory expiring sessions and authenticated routes
@@ -151,10 +151,10 @@ The optional Web UI is part of the v6.3 Golden, not an experimental add-on.
 The live dashboard polls only while its tab is active and the page is visible. It reports:
 
 - WireGuard peer state using current interface information and handshake data
-- configured HAIBOX LAN device reachability using ICMP
+- configured HAIBOX LAN device reachability using ICMP and selected TCP service probes
 - latency when available
 
-An ICMP-blocking LAN device can appear offline despite an application service being reachable; this is an expected diagnostic limitation.
+A device responding to ICMP is Online even if an optional monitored service is closed. A device with blocked ICMP but a reachable monitored service is reported as Service Online.
 
 ## 8. Apply safety and transaction behavior
 
@@ -204,6 +204,7 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 6. Remove All
 7. Show current config
 8. Show Web UI access
+9. Reset Web UI credentials
 
 ### Non-interactive flags
 
@@ -213,13 +214,14 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 - `--create-remote-client`
 - `--ensure-webui-input`
 - `--print-webui-access`
+- `--reset-webui-credentials`
 
 Unknown flags must fail rather than being silently ignored.
 
 ## 12. Change-control rules for v6.4+
 
-1. Never edit or overwrite the v6.3 Golden.
-2. Copy the Golden, update the version consistently, and work only on the new file.
+1. Never edit or overwrite a published Golden release asset.
+2. Start from the current Golden, update the version consistently, and work only on `develop`.
 3. Keep the project as a single deployable script unless a deliberate architecture change is approved.
 4. Do not reconstruct code from chat memory or an older release.
 5. Do not remove or rename a state key, path, CLI flag, Web UI endpoint, or mapping without an explicit migration plan.
@@ -235,7 +237,7 @@ Unknown flags must fail rather than being silently ignored.
 
 ### A. Artifact and static checks
 
-- [ ] Development file was copied from the exact v6.3 Golden checksum recorded above.
+- [ ] Development started from the exact current Golden checksum recorded above.
 - [ ] Version is updated consistently in Bash header, menu, health output, and Web UI-visible text.
 - [ ] `bash -n` passes.
 - [ ] Embedded Python is extracted and `python3 -m py_compile` passes.
@@ -251,7 +253,8 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] EULA appears once, rejects `N`, and records acceptance after `Y`.
 - [ ] Required packages install successfully.
 - [ ] Installed self-copy exists and is executable at `/usr/local/sbin/haibox-wireguard`.
-- [ ] Web UI username/password/port setup completes.
+- [ ] Web UI starts automatically on TCP 65000 with `admin` / `password` on a fresh installation.
+- [ ] First login forces a new password of at least 10 characters before dashboard access.
 - [ ] HTTPS Web UI starts and is reachable externally.
 - [ ] Login succeeds with the configured credentials; bad credentials fail.
 - [ ] Logout invalidates the session.
@@ -358,11 +361,11 @@ Complete this table only after physical regression testing. “Static pass” or
 | Version | SHA-256 | Test date | VPS OS | HAIBOX/router build | Tester | Result | Notes |
 |---|---|---|---|---|---|---|---|
 | v6.3 | `aa01be1c788310fd10675a437cf6efe442387e1a3dad21b8147b92bd783e35d2` | Previously completed | Recorded in project history | Recorded in project history | Simone Messina | **GOLDEN** | Immutable source baseline |
-| v6.4 | — | — | — | — | — | Not tested | Development target |
+| v6.4 | `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated first on Amsterdam test VPS, then installed on Italy production VPS |
 
 ## 15. Definition of done for the next Golden
 
-A release can replace v6.3 as the active Golden only when:
+A release can replace the current active Golden only when:
 
 1. its exact source file and SHA-256 are archived;
 2. all applicable checklist items pass on the real VPS + HAIBOX setup;
@@ -370,4 +373,4 @@ A release can replace v6.3 as the active Golden only when:
 4. upgrade from the existing Golden preserves configuration and access;
 5. rollback has been exercised, not merely code-reviewed;
 6. Simone explicitly confirms the tested release as Golden.
-
+7. `README.md` is reviewed and updated where needed: current Golden version, highlighted features, installation command, direct release/download/checksum links, and architecture diagram.
