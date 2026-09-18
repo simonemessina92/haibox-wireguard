@@ -8,14 +8,31 @@ Secure remote access and public service delivery for portable HAIBOX systems thr
 
 HAIBOX WireGuard turns a public Debian or Ubuntu VPS into the secure network edge for a HAIBOX deployment. It connects the HAIBOX router to the VPS, provides Internet breakout through the VPS public IPv4, publishes selected services and offers an HTTPS control panel for configuration and monitoring.
 
+## Get the latest Golden
+
+Install the latest stable release on a clean VPS as `root`:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main/install.sh)
+```
+
+[Download v6.4 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.4/haibox-wireguard_v6.4.sh) · [SHA-256 checksum](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.4/haibox-wireguard_v6.4.sh.sha256) · [Release notes](https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4)
+
 ## Architecture
 
 ```mermaid
-flowchart TD
-    Internet["Internet / Public IPv4"] --> VPS["VPS<br/>WireGuard · NAT · HTTPS Control Panel"]
-    Remote["Remote VPN Client"] -. "Optional secure access" .-> VPS
-    VPS == "WireGuard tunnel" ==> Router["HAIBOX Router"]
-    Router --> LAN["HAIBOX LAN<br/>StreamHub · HSG/HMG · Makito · Windows · Proxmox"]
+flowchart LR
+    Internet(("Internet")) -->|"Public IPv4"| VPS["VPS Edge<br/>WireGuard · NAT · HTTPS UI"]
+    Remote["Remote VPN Client"] -. "Optional access" .-> VPS
+    VPS == "Encrypted tunnel · UDP 443" ==> Router["HAIBOX Router<br/>10.66.66.2"]
+    Router --> LAN["HAIBOX LAN · 192.168.10.0/24<br/>StreamHub · HSG/HMG · Makito · Windows · Proxmox"]
+
+    classDef edge fill:#082f49,stroke:#00a3e0,color:#f5fbff,stroke-width:2px
+    classDef site fill:#10231d,stroke:#37d39b,color:#f5fbff,stroke-width:2px
+    classDef client fill:#241d38,stroke:#a78bfa,color:#f5fbff
+    class VPS edge
+    class Router,LAN site
+    class Remote client
 ```
 
 The VPS handles the public edge, routing and controlled port forwarding. The HAIBOX router maintains the encrypted tunnel and routes the local `192.168.10.0/24` network without requiring inbound connectivity at the venue.
@@ -46,13 +63,7 @@ The networking behavior in v6.4 is based on the physically tested Golden baselin
 - UDP `443` available for WireGuard
 - TCP `65000` available for the management interface
 
-Run on the VPS as `root`:
-
-```bash
-bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main/install.sh)
-```
-
-Select `INSTALL + WEB UI`, then open:
+After running the installer shown above, select `INSTALL + WEB UI`, then open:
 
 ```text
 https://VPS_PUBLIC_IP:65000
