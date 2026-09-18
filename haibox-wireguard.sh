@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.6
+# Version 6.5-dev.7
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.6 improves session continuity, diagnostics and live network
+# Version 6.5-dev.7 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.6"
+SCRIPT_VERSION = "6.5-dev.7"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -3820,7 +3820,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .profile-details pre {{ max-height:300px; font-size:12px; }}
     .compact-header {{
       display: grid;
-      grid-template-columns: minmax(360px, 1fr) auto auto;
+      grid-template-columns: auto minmax(220px, 1fr) auto auto;
       align-items: center;
       gap: 22px;
       min-height: 96px;
@@ -3828,12 +3828,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       margin-bottom: 16px;
       border-radius: 16px;
     }}
-    .compact-brand {{ display:flex; align-items:center; min-width:360px; }}
+    .compact-brand {{ display:flex; align-items:center; min-width:360px; grid-column:1; grid-row:1; }}
     .compact-brand img {{ display:block; width:360px; max-height:68px; object-fit:contain; object-position:left center; }}
-    .compact-header .primary-navigation {{ margin:0; min-width:min(540px, 44vw); }}
-    .compact-header .logout-form {{ margin:0; }}
+    .compact-header .primary-navigation {{ grid-column:3; grid-row:1; margin:0; min-width:min(540px, 44vw); }}
+    .compact-header .logout-form {{ grid-column:4; grid-row:1; margin:0; }}
     .compact-header .logout-button {{ min-height:42px; padding:9px 15px; border-radius:9px; box-shadow:none; background:var(--panel-soft); border:1px solid var(--line); }}
-    .header-status {{ grid-column:2 / 4; margin:0; padding:8px 11px; font-size:12px; }}
+    .header-status {{ grid-column:2; grid-row:1; margin:0; padding:8px 11px; font-size:12px; opacity:1; transition:opacity 220ms ease, transform 220ms ease; }}
+    .header-status.dismissed {{ opacity:0; transform:translateY(-3px); pointer-events:none; }}
     .primary-navigation {{ border-radius:12px; }}
     .primary-navigation .tab-button {{ border-radius:8px; min-height:42px; }}
     .layout.focus-mode {{ grid-template-columns: minmax(0, 1fr); }}
@@ -3902,6 +3903,8 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .network-stat-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
       .compact-header {{ grid-template-columns:1fr auto; }}
+      .compact-brand {{ grid-column:1; grid-row:1; }}
+      .compact-header .logout-form {{ grid-column:2; grid-row:1; }}
       .compact-header .primary-navigation {{ grid-column:1 / -1; grid-row:2; width:100%; min-width:0; }}
       .header-status {{ grid-column:1 / -1; grid-row:3; }}
       .overview-summary {{ grid-template-columns:repeat(3,minmax(0,1fr)); }}
@@ -4236,6 +4239,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       const tabPages = document.querySelectorAll("[data-tab-page]");
       const configButtons = document.querySelectorAll("[data-config-target]");
       const configPages = document.querySelectorAll("[data-config-page]");
+      const headerStatus = document.querySelector(".header-status");
+      if (headerStatus) {{
+        window.setTimeout(function() {{
+          headerStatus.classList.add("dismissed");
+          window.setTimeout(function() {{ headerStatus.remove(); }}, 250);
+        }}, 10000);
+      }}
 
       function activateTab(tabName) {{
         tabButtons.forEach(function(button) {{
@@ -5311,7 +5321,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.6"
+    server_version = "HAIBOX-WebUI/6.5-dev.7"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6149,7 +6159,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.6 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.7 - System Health"
   echo "============================================================"
   echo
 
@@ -6563,7 +6573,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.6 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.7 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
