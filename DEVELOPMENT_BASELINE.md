@@ -13,7 +13,7 @@ This document is the engineering baseline for HAIBOX WireGuard development.
 The current Golden release has:
 
 - Version header: `6.5`
-- SHA-256: `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a`
+- SHA-256: `176e2a9c495f675c0246b37977dca4a1a3c5b6af3898202837e437addc8b1b20`
 
 The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.3.
 
