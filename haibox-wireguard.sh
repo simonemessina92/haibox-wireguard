@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.4-dev.3
+# Version 6.4
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,8 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.4-dev.3 adds automatic Web UI credentials, mandatory first-login
-# password replacement and CLI credential recovery while preserving networking.
+# Version 6.4 Golden adds build diagnostics, support bundles, service-aware
+# monitoring and streamlined first-login authentication to the v6.3 baseline.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -550,8 +550,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.4-dev.3"
-RELEASE_CHANNEL = "DEVELOPMENT"
+SCRIPT_VERSION = "6.4"
+RELEASE_CHANNEL = "GOLDEN"
 LOGO_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAFhYAAAe7CAYAAADi0l4NAAAACXBIWXMAAC4jAAAuIwF4pT92AAAgAElEQVR4nOzdy0HjyhaG0f/E"
@@ -5128,7 +5128,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.4-dev.3"
+    server_version = "HAIBOX-WebUI/6.4"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5912,7 +5912,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.4-dev.3 - System Health"
+  echo " HAIBOX WireGuard v6.4 - System Health"
   echo "============================================================"
   echo
 
@@ -6330,7 +6330,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.4-dev.3 (VPS DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.4 (VPS GOLDEN)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

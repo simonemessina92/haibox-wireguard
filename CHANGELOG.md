@@ -4,9 +4,11 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-Development target: v6.4.
+Next development target: to be defined.
 
-Current test build: v6.4-dev.3.
+## [6.4] — 2026-09-18
+
+Promoted to Golden after physical regression testing on the Amsterdam HAIBOX test bench.
 
 ### Added in v6.4-dev.3
 
@@ -62,5 +64,6 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.3...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.4...develop
+[6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
 [6.3]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.3
