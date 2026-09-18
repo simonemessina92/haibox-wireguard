@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.4
+# Version 6.5-dev.5
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.4 improves session continuity, diagnostics and live network
+# Version 6.5-dev.5 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.4"
+SCRIPT_VERSION = "6.5-dev.5"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2761,6 +2761,24 @@ def public_service_rows(state: Dict[str, str]) -> str:
     return "".join(rows)
 
 
+def public_service_links(state: Dict[str, str]) -> str:
+    host = state.get("PUB_IP") or "SERVER_IP"
+    services = [
+        ("StreamHub", f"https://{host}:443"),
+        ("StreamHub Alt", f"https://{host}:8444"),
+        ("Makito X4E", f"https://{host}:{FIXED_PORTS['MAKITO_GUI_PUB_PORT']}"),
+        ("HSG / HMG", f"https://{host}:{FIXED_PORTS['HSG_GUI_PUB_PORT']}"),
+        ("Proxmox", f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"),
+        ("Router", f"https://{host}:{FIXED_PORTS['ROUTER_ADMIN_PUB_PORT']}"),
+        ("LuCI", f"https://{host}:{FIXED_PORTS['ROUTER_LUCI_PUB_PORT']}"),
+    ]
+    return "".join(
+        f'<a class="service-link" href="{esc(url)}" target="_blank" rel="noopener">'
+        f'<span>{esc(label)}</span><span class="external-icon" aria-hidden="true">↗</span></a>'
+        for label, url in services
+    )
+
+
 def udp_range_rows(state: Dict[str, str]) -> str:
     return "".join([
         summary_row(
@@ -3175,6 +3193,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     web_port = state.get("WEBUI_PORT", DEFAULTS["WEBUI_PORT"])
     management_summary = management_rows(state)
     services_summary = public_service_rows(state)
+    services_links = public_service_links(state)
     udp_summary = udp_range_rows(state)
     extra_rules_html = extra_rule_form_rows(state)
     extra_rules_summary = extra_rules_summary_rows(state)
@@ -3779,6 +3798,55 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .profile-details summary {{ color:var(--muted); cursor:pointer; font-weight:700; font-size:13px; }}
     .profile-details[open] summary {{ color:#dff6ff; margin-bottom:12px; }}
     .profile-details pre {{ max-height:300px; font-size:12px; }}
+    .compact-header {{
+      display: flex;
+      align-items: center;
+      gap: 22px;
+      min-height: 76px;
+      padding: 12px 18px;
+      margin-bottom: 16px;
+      border-radius: 16px;
+    }}
+    .compact-brand {{ display:flex; align-items:center; min-width:280px; }}
+    .compact-brand img {{ display:block; width:280px; max-height:48px; object-fit:contain; object-position:left center; }}
+    .compact-header .primary-navigation {{ margin:0 0 0 auto; min-width:min(540px, 48vw); }}
+    .compact-header .logout-form {{ margin:0; }}
+    .compact-header .logout-button {{ min-height:42px; padding:9px 15px; border-radius:9px; box-shadow:none; background:var(--panel-soft); border:1px solid var(--line); }}
+    .primary-navigation {{ border-radius:12px; }}
+    .primary-navigation .tab-button {{ border-radius:8px; min-height:42px; }}
+    .layout.focus-mode {{ grid-template-columns: minmax(0, 1fr); }}
+    .layout.focus-mode .aside {{ display:none; }}
+    .control-panel {{ border-radius:16px; box-shadow:0 14px 34px rgba(0,0,0,.24); }}
+    .control-panel > .panel-body {{ padding:16px; }}
+    .control-heading {{ display:none; }}
+    .status {{ margin-bottom:14px; padding:10px 13px; border-radius:9px; }}
+    .overview-summary {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; margin-bottom:12px; }}
+    .overview-metric {{ min-height:66px; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:var(--panel-soft); }}
+    .overview-metric span {{ display:block; margin-bottom:5px; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; }}
+    .overview-metric strong {{ display:block; color:#fff; font-size:14px; overflow-wrap:anywhere; }}
+    .overview-services {{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }}
+    .overview-services-label {{ margin-right:3px; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }}
+    .service-link {{ display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#e8f7ff; text-decoration:none; font-size:12px; font-weight:700; }}
+    .service-link:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.10); }}
+    .external-icon {{ color:var(--brand); font-size:14px; }}
+    .overview-workspace {{ display:grid; grid-template-columns:minmax(330px,.78fr) minmax(520px,1.42fr); gap:12px; align-items:start; }}
+    .overview-workspace .config-block {{ padding:14px; margin:0; border-radius:12px; }}
+    .overview-workspace .dashboard-card {{ padding:12px; border-radius:10px; }}
+    .overview-workspace .dashboard-card-head {{ margin-bottom:9px; }}
+    .overview-workspace .dashboard-row {{ padding:8px 10px; border-radius:8px; }}
+    .overview-workspace .dashboard-list {{ gap:6px; }}
+    .overview-workspace .network-chart-wrap {{ height:255px; min-height:220px; border-radius:10px; }}
+    .overview-workspace .network-stat-grid {{ margin-bottom:10px; }}
+    .overview-workspace .network-stat-card {{ padding:10px 12px; border-radius:9px; }}
+    .overview-workspace .network-stat-card strong {{ font-size:20px; }}
+    .overview-workspace .traffic-table {{ margin-top:10px; border-radius:10px; }}
+    .overview-workspace .traffic-row {{ grid-template-columns:minmax(130px,1fr) 100px 100px; padding:7px 11px; }}
+    .overview-workspace .dashboard-note {{ display:none; }}
+    .overview-footer {{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px; color:var(--muted); font-size:11px; }}
+    .system-details {{ position:relative; }}
+    .system-details summary {{ cursor:pointer; color:#cde8f5; font-weight:700; }}
+    .system-details-content {{ position:absolute; right:0; z-index:5; width:min(460px,80vw); margin-top:8px; padding:14px; border:1px solid var(--line); border-radius:12px; background:#0b141e; box-shadow:var(--shadow); }}
+    .system-details-content .summary-row {{ grid-template-columns:1fr; }}
     @media (max-width: 1180px) {{
       .hero {{
         padding: 26px 20px 22px;
@@ -3801,6 +3869,10 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .network-stat-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+      .compact-header {{ flex-wrap:wrap; }}
+      .compact-header .primary-navigation {{ order:3; width:100%; min-width:0; }}
+      .overview-summary {{ grid-template-columns:repeat(3,minmax(0,1fr)); }}
+      .overview-workspace {{ grid-template-columns:1fr; }}
     }}
     * {{ min-width: 0; letter-spacing: 0 !important; }}
     .grid {{ grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }}
@@ -3817,6 +3889,14 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       h1 {{ font-size: 28px; }}
       .network-stat-grid {{ grid-template-columns: 1fr; }}
       .network-chart-wrap {{ height: 260px; }}
+      .compact-brand {{ min-width:0; width:calc(100% - 90px); }}
+      .compact-brand img {{ width:100%; }}
+      .compact-header .primary-navigation {{ display:grid; grid-template-columns:1fr; }}
+      .overview-summary {{ grid-template-columns:1fr 1fr; }}
+      .overview-metric:last-child {{ grid-column:1 / -1; }}
+      .overview-workspace .traffic-row {{ grid-template-columns:minmax(110px,1fr) 78px 78px; gap:7px; }}
+      .overview-footer {{ align-items:flex-start; flex-direction:column; }}
+      .system-details-content {{ left:0; right:auto; width:min(440px,calc(100vw - 52px)); }}
     }}
     @media (prefers-reduced-motion: reduce) {{
       *, *::before, *::after {{ animation: none !important; transition: none !important; }}
@@ -3825,51 +3905,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 </head>
 <body>
   <div class="page-shell">
-    <section class="panel hero">
-      <div class="hero-logo">
-        <img src="{esc(LOGO_URL)}" alt="HAIBOX logo">
+    <header class="panel compact-header">
+      <div class="compact-brand"><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"></div>
+      <div class="tab-bar primary-navigation" role="tablist" aria-label="Control panel sections">
+        <button class="tab-button active" type="button" data-tab-target="overview">Overview</button>
+        <button class="tab-button" type="button" data-tab-target="configuration">Configuration</button>
+        <button class="tab-button" type="button" data-tab-target="profiles">VPN Profiles</button>
       </div>
-      <div class="hero-copy">
-        <h1>WireGuard Control Panel</h1>
-      </div>
-      <div class="hero-meta">
-        <div class="meta-pill">
-          <span>Public IP</span>
-          <strong>{esc(host)}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Web UI</span>
-          <strong>{esc(host)}:{esc(web_port)}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>WireGuard</span>
-          <strong>UDP {esc(state.get("WG_PORT", ""))}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Build</span>
-          <strong>v{esc(build["version"])} · {esc(build["channel"])}</strong>
-        </div>
-        <div class="meta-pill">
-          <span>Script SHA-256</span>
-          <strong title="{esc(build["sha256"])}">{esc(build["sha256"][:16])}…</strong>
-        </div>
-        <div class="meta-pill">
-          <span>VPS Uptime</span>
-          <strong>{esc(build["uptime"])}</strong>
-        </div>
-      </div>
-      <div class="hero-actions">
-        <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
-        <form class="logout-form" method="post" action="/logout">
-          <button class="logout-button" type="submit">Logout</button>
-        </form>
-      </div>
-    </section>
+      <form class="logout-form" method="post" action="/logout">
+        <button class="logout-button" type="submit">Logout</button>
+      </form>
+    </header>
 
-    <div class="layout">
-      <section class="panel">
+    <div class="layout focus-mode" id="main-layout">
+      <section class="panel control-panel">
         <div class="panel-body">
-          <div class="panel-head">
+          <div class="panel-head control-heading">
             <div>
               <h2 class="panel-title">HAIBOX Control Center</h2>
               <p class="panel-subtitle">Live status, traffic, configuration and VPN profiles.</p>
@@ -3877,13 +3928,16 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           </div>
           <div class="{status_class}">{esc(message or default_message)}</div>
           <form method="post" action="/apply">
-            <div class="tab-bar primary-navigation" role="tablist" aria-label="Control panel sections">
-              <button class="tab-button active" type="button" data-tab-target="overview">Overview</button>
-              <button class="tab-button" type="button" data-tab-target="configuration">Configuration</button>
-              <button class="tab-button" type="button" data-tab-target="profiles">VPN Profiles</button>
-            </div>
-
             <div class="tab-page" data-tab-page="overview">
+              <div class="overview-summary">
+                <div class="overview-metric"><span>Public IP</span><strong>{esc(host)}</strong></div>
+                <div class="overview-metric"><span>Web UI</span><strong>{esc(host)}:{esc(web_port)}</strong></div>
+                <div class="overview-metric"><span>WireGuard</span><strong>UDP {esc(state.get("WG_PORT", ""))}</strong></div>
+                <div class="overview-metric"><span>Build</span><strong>v{esc(build["version"])} · {esc(build["channel"])}</strong></div>
+                <div class="overview-metric"><span>VPS Uptime</span><strong>{esc(build["uptime"])}</strong></div>
+              </div>
+              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}</div>
+              <div class="overview-workspace">
               <section class="config-block">
                 <div class="block-head">
                   <h3>HAIBOX Live Status</h3>
@@ -3933,6 +3987,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
                 </div>
               </section>
+              </div>
+              <div class="overview-footer">
+                <span>Live data is sampled only while Overview is visible.</span>
+                <details class="system-details">
+                  <summary>System information</summary>
+                  <div class="system-details-content">
+                    <div class="summary-list">
+                      {summary_row("Script SHA-256", build["sha256"], "Installed source identity")}
+                      {summary_row("Operating System", build["os"], "Kernel " + build["kernel"])}
+                      {summary_row("Last Apply", build["last_apply"], "Applied-state timestamp")}
+                      {summary_row("Web UI Started", build["webui_started"], "Current service activation")}
+                    </div>
+                    <div class="config-actions-row"><a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a></div>
+                  </div>
+                </details>
+              </div>
             </div>
 
             <div class="tab-page" data-tab-page="configuration" hidden>
@@ -4070,18 +4140,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           <div class="panel-body">
             <div class="panel-head">
               <div>
-                <h2 class="panel-title">Summary</h2>
-                <p class="panel-subtitle">Current panel and tunnel status.</p>
-              </div>
-            </div>
-            <div class="summary-list">{management_summary}</div>
-          </div>
-        </section>
-
-        <section class="panel summary-panel">
-          <div class="panel-body">
-            <div class="panel-head">
-              <div>
                 <h2 class="panel-title">Build Information</h2>
                 <p class="panel-subtitle">Exact software and VPS identity.</p>
               </div>
@@ -4096,18 +4154,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             <div class="config-actions-row">
               <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
             </div>
-          </div>
-        </section>
-
-        <section class="panel summary-panel">
-          <div class="panel-body">
-            <div class="panel-head">
-              <div>
-                <h2 class="panel-title">Public Services</h2>
-                <p class="panel-subtitle">Published endpoints.</p>
-              </div>
-            </div>
-            <div class="summary-list">{services_summary}</div>
           </div>
         </section>
 
@@ -4169,6 +4215,8 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         tabPages.forEach(function(page) {{
           page.hidden = page.dataset.tabPage !== tabName;
         }});
+        const mainLayout = document.getElementById("main-layout");
+        if (mainLayout) mainLayout.classList.toggle("focus-mode", tabName !== "configuration");
         try {{
           window.sessionStorage.setItem(activeTabKey, tabName);
         }} catch (err) {{}}
@@ -5237,7 +5285,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.4"
+    server_version = "HAIBOX-WebUI/6.5-dev.5"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6075,7 +6123,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.4 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.5 - System Health"
   echo "============================================================"
   echo
 
@@ -6489,7 +6537,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.4 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.5 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
