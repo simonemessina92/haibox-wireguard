@@ -4,7 +4,7 @@
 
 This document is the engineering baseline for HAIBOX WireGuard development.
 
-- **Current Golden source:** `haibox-wireguard_v6.4.sh`
+- **Current Golden source:** `haibox-wireguard_v6.5.sh`
 - **Golden status:** tested on the real HAIBOX environment and working
 - **Development rule:** released Golden assets are immutable. Every new development cycle starts from the current Golden.
 - **Conflict rule:** if previous chats, notes, memories, or older scripts disagree with the Golden file, the Golden file wins.
@@ -12,8 +12,8 @@ This document is the engineering baseline for HAIBOX WireGuard development.
 
 The current Golden release has:
 
-- Version header: `6.4`
-- SHA-256: `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a`
+- Version header: `6.5`
+- SHA-256: `176e2a9c495f675c0246b37977dca4a1a3c5b6af3898202837e437addc8b1b20`
 
 The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.3.
 
@@ -38,7 +38,7 @@ The script owns the HAIBOX-specific WireGuard, routing, NAT, forwarding, persist
 |---|---:|---|
 | HAIBOX LAN | `192.168.10.0/24` | Remote LAN routed through the HAIBOX router |
 | HAIBOX router LAN | `192.168.10.1` | LAN gateway/device management |
-| Proxmox | `192.168.10.250` | Optional public GUI mapping |
+| Proxmox | `192.168.10.250` | Public GUI mapping on TCP 8006 |
 | StreamHub | `192.168.10.101` | Main broadcast service target |
 | HSG/HMG | `192.168.10.102` | Gateway/manager target |
 | Makito X4E | `192.168.10.103` | Encoder target |
@@ -104,7 +104,7 @@ Every standard DNAT mapping must exist twice:
 |---|---|---|
 | Router admin | TCP `8080` | Router `:8080` |
 | Router LuCI | TCP `8081` | Router `:8081` |
-| Proxmox GUI | TCP `8006` | Proxmox `:8006` when explicitly enabled |
+| Proxmox GUI | TCP `8006` | Proxmox `:8006`, always published |
 | Makito GUI | TCP `10443` | Makito `:443` |
 | Makito encoder | UDP `30000-30004` | Same ports on Makito |
 | HSG/HMG GUI | TCP `10444` | HSG/HMG `:443` |
@@ -147,6 +147,10 @@ The Web UI is part of the current Golden, not an experimental add-on.
 - Test and System Health actions
 - Router and remote-client `.conf` downloads when available
 - Live dashboard and network statistics endpoints
+- Compact Overview, Configuration and VPN Profiles workspaces
+- Per-device RX/TX traffic accounting from the HAIBOX perspective
+- POST/Redirect/GET prevents browser refresh from replaying state-changing actions
+- Transient action messages dismiss automatically after 10 seconds
 
 The live dashboard polls only while its tab is active and the page is visible. It reports:
 
@@ -218,7 +222,7 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 
 Unknown flags must fail rather than being silently ignored.
 
-## 12. Change-control rules for v6.4+
+## 12. Change-control rules for v6.5+
 
 1. Never edit or overwrite a published Golden release asset.
 2. Start from the current Golden, update the version consistently, and work only on `develop`.
