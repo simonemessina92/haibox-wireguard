@@ -4,7 +4,19 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-Next development target: to be defined.
+### Added in v6.5-dev.1
+
+- Per-device live traffic accounting for Router, StreamHub, HSG/HMG, Makito X4E, Windows Orchestrator, and Proxmox, plus an `Other / VPN` category.
+- Redesigned Network Statistics view with device lines, live consumer ranking, total RX/TX peaks, and RTT visibility.
+
+### Changed in v6.5-dev.1
+
+- Proxmox TCP 8006 is now always published; the optional exposure switch has been removed.
+- Configuration validation and Apply failures now present clearer, actionable error messages.
+
+### Fixed in v6.5-dev.1
+
+- Browser refresh no longer destroys the authenticated Web UI session. Logout remains explicit and sessions still expire server-side.
 
 ## [6.4] — 2026-09-18
 
