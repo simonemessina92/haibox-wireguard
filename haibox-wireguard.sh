@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.3
+# Version 6.5-dev.4
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.3 improves session continuity, diagnostics and live network
+# Version 6.5-dev.4 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.3"
+SCRIPT_VERSION = "6.5-dev.4"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -3337,6 +3337,34 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       border-color: rgba(0, 163, 224, 0.42);
       color: #ffffff;
     }}
+    .primary-navigation {{
+      padding: 6px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: rgba(5, 12, 18, 0.58);
+    }}
+    .primary-navigation .tab-button {{ flex: 1 1 150px; }}
+    .subtab-bar {{
+      display: inline-flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 5px;
+      margin-bottom: 16px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: rgba(255,255,255,0.025);
+    }}
+    .subtab-button {{
+      min-height: 38px;
+      padding: 8px 14px;
+      border-radius: 10px;
+      border: 0;
+      box-shadow: none;
+      background: transparent;
+      color: var(--muted);
+    }}
+    .subtab-button.active {{ background: rgba(0,163,224,0.16); color: #fff; }}
+    [data-config-page][hidden] {{ display: none; }}
     .tab-page[hidden] {{
       display: none;
     }}
@@ -3724,7 +3752,33 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .traffic-value {{ text-align:right; color:#c8d9e5; font-variant-numeric:tabular-nums; }}
     .traffic-value.rx {{ color:#55ceff; }}
     .traffic-value.tx {{ color:#7aefb9; }}
-    .router-panel {{ margin-top: 20px; }}
+    .profiles-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; }}
+    .profile-card {{
+      padding: 20px;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: linear-gradient(180deg, rgba(15,25,36,.98), rgba(8,15,23,.98));
+    }}
+    .profile-card-head {{ display:flex; justify-content:space-between; align-items:flex-start; gap:14px; }}
+    .profile-card-head h3 {{ margin:0; color:#fff; font-size:17px; }}
+    .profile-card-head p {{ margin:5px 0 0; color:var(--muted); font-size:13px; line-height:1.4; }}
+    .profile-badge {{ padding:5px 9px; border-radius:999px; border:1px solid rgba(0,163,224,.3); background:rgba(0,163,224,.1); color:#bcecff; font-size:11px; font-weight:800; text-transform:uppercase; }}
+    .profile-actions {{ display:flex; flex-wrap:wrap; gap:8px; margin-top:18px; }}
+    .icon-action {{
+      display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px;
+      padding:9px 12px; border-radius:12px; border:1px solid var(--line); background:var(--panel-soft);
+      color:#e8f7ff; text-decoration:none; font-weight:750; cursor:pointer; box-shadow:none;
+    }}
+    .icon-action:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.12); }}
+    .icon-action.primary-action {{ background:rgba(0,163,224,.2); border-color:rgba(0,163,224,.45); }}
+    .download-icon {{ position:relative; width:16px; height:16px; flex:0 0 16px; border-bottom:1.8px solid currentColor; }}
+    .download-icon::before {{ content:""; position:absolute; left:7px; top:1px; height:9px; border-left:1.8px solid currentColor; }}
+    .download-icon::after {{ content:""; position:absolute; left:4px; top:6px; width:6px; height:6px; border-right:1.8px solid currentColor; border-bottom:1.8px solid currentColor; transform:rotate(45deg); }}
+    .refresh-icon {{ font-size:19px; line-height:14px; }}
+    .profile-details {{ margin-top:16px; border-top:1px solid var(--line); padding-top:14px; }}
+    .profile-details summary {{ color:var(--muted); cursor:pointer; font-weight:700; font-size:13px; }}
+    .profile-details[open] summary {{ color:#dff6ff; margin-bottom:12px; }}
+    .profile-details pre {{ max-height:300px; font-size:12px; }}
     @media (max-width: 1180px) {{
       .hero {{
         padding: 26px 20px 22px;
@@ -3817,20 +3871,19 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         <div class="panel-body">
           <div class="panel-head">
             <div>
-              <h2 class="panel-title">Configuration</h2>
-              <p class="panel-subtitle">Network, tunnel and forwarding values.</p>
+              <h2 class="panel-title">HAIBOX Control Center</h2>
+              <p class="panel-subtitle">Live status, traffic, configuration and VPN profiles.</p>
             </div>
           </div>
           <div class="{status_class}">{esc(message or default_message)}</div>
           <form method="post" action="/apply">
-            <div class="tab-bar" role="tablist" aria-label="Configuration sections">
-              <button class="tab-button active" type="button" data-tab-target="dashboard">Dashboard</button>
-              <button class="tab-button" type="button" data-tab-target="core">Core Configuration</button>
-              <button class="tab-button" type="button" data-tab-target="extra">Extra Port Forwarding Rules</button>
-              <button class="tab-button" type="button" data-tab-target="network">Network Statistics</button>
+            <div class="tab-bar primary-navigation" role="tablist" aria-label="Control panel sections">
+              <button class="tab-button active" type="button" data-tab-target="overview">Overview</button>
+              <button class="tab-button" type="button" data-tab-target="configuration">Configuration</button>
+              <button class="tab-button" type="button" data-tab-target="profiles">VPN Profiles</button>
             </div>
 
-            <div class="tab-page" data-tab-page="dashboard">
+            <div class="tab-page" data-tab-page="overview">
               <section class="config-block">
                 <div class="block-head">
                   <h3>HAIBOX Live Status</h3>
@@ -3856,11 +3909,38 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     </div>
                   </div>
                 </div>
-                <p class="dashboard-note">Status is sampled only while this Dashboard tab is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
+                <p class="dashboard-note">Status is sampled only while Overview is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
+              </section>
+              <section class="config-block">
+                <div class="block-head">
+                  <h3>Network Statistics</h3>
+                  <p>Live WireGuard RX and TX from the HAIBOX point of view, with per-device traffic.</p>
+                </div>
+                <div class="network-stat-grid">
+                  <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
+                  <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
+                </div>
+                <div class="network-chart-wrap">
+                  <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
+                  <div class="network-chart-empty" id="network-chart-empty" hidden></div>
+                </div>
+                <div class="network-legend">
+                  <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
+                  <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
+                  <span>60 second rolling window · Mbps</span>
+                </div>
+                <div class="traffic-table" id="network-consumers">
+                  <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
+                </div>
               </section>
             </div>
 
-            <div class="tab-page" data-tab-page="core" hidden>
+            <div class="tab-page" data-tab-page="configuration" hidden>
+              <div class="subtab-bar" role="tablist" aria-label="Configuration sections">
+                <button class="subtab-button active" type="button" data-config-target="core">Core</button>
+                <button class="subtab-button" type="button" data-config-target="extra">Extra Port Forwarding</button>
+              </div>
+              <div data-config-page="core">
               <section class="config-block">
               <div class="block-head">
                 <h3>Network</h3>
@@ -3928,9 +4008,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 {input_row("Confirm new password", "WEBUI_PASSWORD_CONFIRM", "", "password")}
               </div>
             </section>
-            </div>
+              </div>
 
-            <div class="tab-page" data-tab-page="extra" hidden>
+              <div data-config-page="extra" hidden>
               <section class="config-block">
                 <div class="block-head">
                   <h3>Extra Port Forwarding Rules</h3>
@@ -3945,37 +4025,42 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   {extra_rule_row(empty_extra_rule())}
                 </template>
               </section>
-            </div>
-            <div class="tab-page" data-tab-page="network" hidden>
-              <section class="config-block">
-                <div class="block-head">
-                  <h3>Network Statistics</h3>
-                  <p>Live WireGuard RX and TX with a fixed per-device breakdown.</p>
-                </div>
-                <div class="network-stat-grid">
-                  <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
-                  <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
-                </div>
-                <div class="network-chart-wrap">
-                  <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
-                  <div class="network-chart-empty" id="network-chart-empty" hidden></div>
-                </div>
-                <div class="network-legend">
-                  <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
-                  <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
-                  <span>60 second rolling window · Mbps</span>
-                </div>
-                <div class="traffic-table" id="network-consumers">
-                  <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
-                </div>
-              </section>
-            </div>
+              </div>
             <div class="actions">
               <button class="primary" type="submit">Apply + Make Persistent</button>
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
             <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
+            </div>
+
+            <div class="tab-page" data-tab-page="profiles" hidden>
+              <div class="profiles-grid">
+                <section class="profile-card">
+                  <div class="profile-card-head">
+                    <div><h3>HAIBOX Router</h3><p>Current GL-AXT1800 WireGuard peer profile.</p></div>
+                    <span class="profile-badge">Router</span>
+                  </div>
+                  <div class="profile-actions">
+                    <button class="icon-action" type="button" data-copy-target="router-config" title="Copy router configuration"><span class="copy-icon" aria-hidden="true"></span><span>Copy</span></button>
+                    <a class="icon-action" href="/download-router-config" title="Download router configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
+                  </div>
+                  <details class="profile-details"><summary>View configuration</summary><pre id="router-config">{esc(router_config_text())}</pre></details>
+                </section>
+                <section class="profile-card">
+                  <div class="profile-card-head">
+                    <div><h3>Remote VPN Client</h3><p>Optional Windows, laptop or mobile peer.</p></div>
+                    <span class="profile-badge">Client</span>
+                  </div>
+                  <div class="profile-actions">
+                    <button class="icon-action primary-action" type="submit" formaction="/create-remote-client" formmethod="post"><span class="refresh-icon" aria-hidden="true">↻</span><span>Create / Refresh</span></button>
+                    <button class="icon-action" type="button" data-copy-target="remote-client-config" title="Copy remote client configuration"><span class="copy-icon" aria-hidden="true"></span><span>Copy</span></button>
+                    <a class="icon-action" href="/download-remote-client" title="Download remote client configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
+                  </div>
+                  <details class="profile-details"><summary>View configuration</summary><pre id="remote-client-config">{esc(remote_client_config_text())}</pre></details>
+                </section>
+              </div>
+            </div>
           </form>
         </div>
       </section>
@@ -4065,46 +4150,15 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       </aside>
     </div>
 
-    <section class="panel router-panel">
-      <div class="panel-body">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title">Remote VPN Client</h2>
-            <p class="panel-subtitle">Optional Windows/laptop peer for direct access to the HAIBOX LAN.</p>
-          </div>
-        </div>
-        <form method="post" action="/create-remote-client">
-          <button type="submit">Create / Refresh Remote Client</button>
-        </form>
-        <div class="config-actions-row">
-          <a href="/download-remote-client">Download WireGuard .conf</a>
-          <button class="copy-button" type="button" data-copy-target="remote-client-config"><span class="copy-icon" aria-hidden="true"></span><span>Copy to Clipboard</span></button>
-        </div>
-        <pre id="remote-client-config">{esc(remote_client_config_text())}</pre>
-      </div>
-    </section>
-
-    <section class="panel router-panel">
-      <div class="panel-body">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title">Router Config</h2>
-            <p class="panel-subtitle">Current GL-AXT1800 peer file.</p>
-          </div>
-        </div>
-        <div class="config-actions-row">
-          <a href="/download-router-config">Download Router WireGuard .conf</a>
-          <button class="copy-button" type="button" data-copy-target="router-config"><span class="copy-icon" aria-hidden="true"></span><span>Copy to Clipboard</span></button>
-        </div>
-        <pre id="router-config">{esc(router_config_text())}</pre>
-      </div>
-    </section>
   </div>
   <script>
     (function() {{
       const activeTabKey = "haibox_active_config_tab";
+      const activeConfigKey = "haibox_active_config_section";
       const tabButtons = document.querySelectorAll("[data-tab-target]");
       const tabPages = document.querySelectorAll("[data-tab-page]");
+      const configButtons = document.querySelectorAll("[data-config-target]");
+      const configPages = document.querySelectorAll("[data-config-page]");
 
       function activateTab(tabName) {{
         tabButtons.forEach(function(button) {{
@@ -4122,6 +4176,18 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         updateDashboardPolling();
       }}
 
+      function activateConfigTab(tabName) {{
+        configButtons.forEach(function(button) {{
+          const active = button.dataset.configTarget === tabName;
+          button.classList.toggle("active", active);
+          button.setAttribute("aria-selected", active ? "true" : "false");
+        }});
+        configPages.forEach(function(page) {{
+          page.hidden = page.dataset.configPage !== tabName;
+        }});
+        try {{ window.sessionStorage.setItem(activeConfigKey, tabName); }} catch (err) {{}}
+      }}
+
       const peerStatusList = document.getElementById("peer-status-list");
       const lanStatusList = document.getElementById("lan-status-list");
       const peerOnlineCount = document.getElementById("peer-online-count");
@@ -4131,7 +4197,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       let dashboardRequestActive = false;
 
       function dashboardTabIsActive() {{
-        const page = document.querySelector('[data-tab-page="dashboard"]');
+        const page = document.querySelector('[data-tab-page="overview"]');
         return !!page && !page.hidden && document.visibilityState === "visible";
       }}
 
@@ -4245,7 +4311,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       }}
 
       function networkTabIsActive() {{
-        const page = document.querySelector('[data-tab-page="network"]');
+        const page = document.querySelector('[data-tab-page="overview"]');
         return !!page && !page.hidden && document.visibilityState === "visible";
       }}
 
@@ -4495,15 +4561,24 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       tabButtons.forEach(function(button) {{
         button.addEventListener("click", function() {{
-          activateTab(button.dataset.tabTarget || "dashboard");
+          activateTab(button.dataset.tabTarget || "overview");
         }});
       }});
 
-      let initialTab = "dashboard";
+      configButtons.forEach(function(button) {{
+        button.addEventListener("click", function() {{ activateConfigTab(button.dataset.configTarget || "core"); }});
+      }});
+
+      let initialTab = "overview";
       try {{
-        initialTab = window.sessionStorage.getItem(activeTabKey) || "dashboard";
+        initialTab = window.sessionStorage.getItem(activeTabKey) || "overview";
       }} catch (err) {{}}
+      if (!["overview", "configuration", "profiles"].includes(initialTab)) initialTab = "overview";
       activateTab(initialTab);
+      let initialConfigTab = "core";
+      try {{ initialConfigTab = window.sessionStorage.getItem(activeConfigKey) || "core"; }} catch (err) {{}}
+      if (!["core", "extra"].includes(initialConfigTab)) initialConfigTab = "core";
+      activateConfigTab(initialConfigTab);
 
       const extraRuleList = document.getElementById("extra-rule-list");
       const extraRuleTemplate = document.getElementById("extra-rule-template");
@@ -5162,7 +5237,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.3"
+    server_version = "HAIBOX-WebUI/6.5-dev.4"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6000,7 +6075,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.3 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.4 - System Health"
   echo "============================================================"
   echo
 
@@ -6414,7 +6489,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.3 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.4 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
