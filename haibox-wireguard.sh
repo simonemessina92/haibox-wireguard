@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.4
+# Version 6.5-dev.1
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,8 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.4 Golden adds build diagnostics, support bundles, service-aware
-# monitoring and streamlined first-login authentication to the v6.3 baseline.
+# Version 6.5-dev.1 improves session continuity, diagnostics and live network
+# visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -60,6 +60,7 @@ WEBUI_RULE_COMMENT="HAIBOX_WEBUI"
 
 TAG_CHAIN_NAT="HAIBOX_NAT"
 TAG_CHAIN_FWD="HAIBOX_FWD"
+TAG_CHAIN_STATS="HAIBOX_STATS"
 
 ROUTER_ADMIN_PUB_PORT="8080"
 ROUTER_LUCI_PUB_PORT="8081"
@@ -181,7 +182,7 @@ save_state() {
   local key value temporary
   temporary="$(mktemp "${STATE_FILE}.XXXXXX")"
   for key in LAN_CIDR ROUTER_LAN_IP PROXMOX_IP STREAMHUB_IP HSG_IP MAKITO_ENC_IP WINDOWS_ORCH_IP \
-    EXPOSE_PROXMOX_GUI UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
+    UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
     MAKITO_ENC_UDP_FROM MAKITO_ENC_UDP_TO HSG_SRT_UDP_FROM HSG_SRT_UDP_TO PUB_IFACE PUB_IP \
     WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES; do
     value="${!key}"
@@ -204,7 +205,7 @@ init_defaults() {
   MAKITO_ENC_IP="${MAKITO_ENC_IP:-192.168.10.103}"
   WINDOWS_ORCH_IP="${WINDOWS_ORCH_IP:-192.168.10.104}"
 
-  EXPOSE_PROXMOX_GUI="$(normalize_yes_no "${EXPOSE_PROXMOX_GUI:-N}")"
+  EXPOSE_PROXMOX_GUI="Y"
   UFW_WAS_ACTIVE="$(normalize_yes_no "${UFW_WAS_ACTIVE:-N}")"
   PYTHON3_INSTALLED_BY_SCRIPT="$(normalize_yes_no "${PYTHON3_INSTALLED_BY_SCRIPT:-N}")"
 
@@ -315,11 +316,7 @@ print_config() {
   fi
   echo
   echo "  --- Proxmox ---"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  GUI:                     ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006"
-  else
-    echo "  GUI:                     disabled (${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006)"
-  fi
+  echo "  GUI:                     ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006 (always enabled)"
   echo
   echo "  --- Router ---"
   echo "  Admin HTTPS:             ${ROUTER_ADMIN_PUB_PORT} -> ${ROUTER_LAN_IP}:8080"
@@ -350,9 +347,7 @@ print_config() {
   echo
   print_extra_pf_rules
   echo "  --- Quick public access ---"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  Proxmox GUI:             https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "  Proxmox GUI:             https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   echo "  Makito X4E:              https://${PUB_IP}:${MAKITO_GUI_PUB_PORT}"
   echo "  HSG Web:                 https://${PUB_IP}:${HSG_GUI_PUB_PORT}"
   echo "  HSG SSH:                 ssh -p ${HSG_SSH_PUB_PORT} hvroot@${PUB_IP}"
@@ -392,9 +387,6 @@ prompt_config() {
 
   read -r -p "VPS public iface [${PUB_IFACE}]: " v; [[ -n "${v}" ]] && PUB_IFACE="${v}"
   read -r -p "VPS public IPv4 [${PUB_IP}]: " v; [[ -n "${v}" ]] && PUB_IP="${v}"
-
-  read -r -p "Do you want to expose Proxmox GUI on the VPN (TCP ${PROXMOX_GUI_PUB_PORT} -> ${PROXMOX_IP}:8006)? [${EXPOSE_PROXMOX_GUI}]: " v
-  [[ -n "${v}" ]] && EXPOSE_PROXMOX_GUI="$(normalize_yes_no "${v}")"
 
   save_state
   ok "Saved ${STATE_FILE}"
@@ -550,8 +542,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.4"
-RELEASE_CHANNEL = "GOLDEN"
+SCRIPT_VERSION = "6.5-dev.1"
+RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAFhYAAAe7CAYAAADi0l4NAAAACXBIWXMAAC4jAAAuIwF4pT92AAAgAElEQVR4nOzdy0HjyhaG0f/E"
@@ -2253,7 +2245,6 @@ STATE_KEYS = [
     "HSG_IP",
     "MAKITO_ENC_IP",
     "WINDOWS_ORCH_IP",
-    "EXPOSE_PROXMOX_GUI",
     "UFW_WAS_ACTIVE",
     "WG_PORT",
     "WG_TUN_CIDR",
@@ -2281,7 +2272,6 @@ DEFAULTS = {
     "HSG_IP": "192.168.10.102",
     "MAKITO_ENC_IP": "192.168.10.103",
     "WINDOWS_ORCH_IP": "192.168.10.104",
-    "EXPOSE_PROXMOX_GUI": "N",
     "UFW_WAS_ACTIVE": "N",
     "WG_PORT": "443",
     "WG_TUN_CIDR": "10.66.66.0/24",
@@ -2692,11 +2682,8 @@ def management_rows(state: Dict[str, str]) -> str:
 def public_service_rows(state: Dict[str, str]) -> str:
     host = state.get("PUB_IP") or "SERVER_IP"
     rows: List[str] = []
-    if state.get("EXPOSE_PROXMOX_GUI") == "Y":
-        proxmox_url = f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"
-        rows.append(summary_row("Proxmox GUI", proxmox_url, "HTTPS reverse access", proxmox_url))
-    else:
-        rows.append(summary_row("Proxmox GUI", "Disabled", "Enable the Proxmox toggle to expose it", value_class="disabled"))
+    proxmox_url = f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"
+    rows.append(summary_row("Proxmox GUI", proxmox_url, "Always published through the VPS", proxmox_url))
 
     rows.extend([
         summary_row(
@@ -3474,7 +3461,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       padding: 8px 12px;
       font-size: 13px;
     }}
-    .status {{ margin: 0 0 18px 0; padding: 13px 16px; border-radius: 16px; font-size: 14px; }}
+    .status {{ margin: 0 0 18px 0; padding: 13px 16px; border-radius: 16px; font-size: 14px; white-space: pre-line; line-height: 1.5; }}
     .status.info {{ background: rgba(0, 163, 224, 0.12); color: #a8e9ff; }}
     .status.ok {{ background: var(--ok-soft); color: #a4f0c9; }}
     .status.error {{ background: var(--error-soft); color: #ffb3bc; }}
@@ -3641,7 +3628,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .dashboard-note {{ margin: 14px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; }}
     .network-stat-grid {{
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
       gap: 12px;
       margin-bottom: 18px;
     }}
@@ -3702,6 +3689,12 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .legend-dot {{ width: 9px; height: 9px; border-radius: 50%; }}
     .legend-dot.rx {{ background: #12b8ff; }}
     .legend-dot.tx {{ background: #5ee6a8; }}
+    .network-consumers {{ display:grid; gap:9px; margin-top:16px; }}
+    .consumer-row {{ display:grid; grid-template-columns:140px 1fr 95px 75px; align-items:center; gap:12px; color:var(--muted); font-size:12px; }}
+    .consumer-row strong {{ color:#eef9ff; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+    .consumer-bar {{ height:8px; border-radius:999px; background:rgba(128,157,178,.14); overflow:hidden; }}
+    .consumer-bar i {{ display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#12b8ff,#5ee6a8); box-shadow:0 0 14px rgba(18,184,255,.35); }}
+    .consumer-rate,.consumer-rtt {{ text-align:right; font-variant-numeric:tabular-nums; }}
     .router-panel {{ margin-top: 20px; }}
     @media (max-width: 1180px) {{
       .hero {{
@@ -3864,13 +3857,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 {input_row("Makito X4E IP", "MAKITO_ENC_IP", state.get("MAKITO_ENC_IP", ""))}
                 {input_row("Windows Orchestrator IP", "WINDOWS_ORCH_IP", state.get("WINDOWS_ORCH_IP", ""))}
               </div>
-              <label class="switch-card">
-                <input type="checkbox" name="EXPOSE_PROXMOX_GUI" value="Y" {bool_checked(state.get("EXPOSE_PROXMOX_GUI", "N"))}>
-                <span>
-                  Expose Proxmox GUI on the public VPS side
-                  <small>When enabled, the summary panel shows the public HTTPS endpoint for Proxmox.</small>
-                </span>
-              </label>
             </section>
 
             <section class="config-block">
@@ -3935,23 +3921,26 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <section class="config-block">
                 <div class="block-head">
                   <h3>Network Statistics</h3>
-                  <p>Live WireGuard traffic on wg0. Sampling runs only while this tab is visible.</p>
+                  <p>Live WireGuard traffic, broken down by HAIBOX device. Sampling runs only while this tab is visible.</p>
                 </div>
                 <div class="network-stat-grid">
                   <div class="network-stat-card"><span>RX Now</span><strong id="network-rx-now">0.00 Mbps</strong></div>
                   <div class="network-stat-card"><span>TX Now</span><strong id="network-tx-now">0.00 Mbps</strong></div>
                   <div class="network-stat-card"><span>RX Peak</span><strong id="network-rx-peak">0.00 Mbps</strong></div>
                   <div class="network-stat-card"><span>TX Peak</span><strong id="network-tx-peak">0.00 Mbps</strong></div>
+                  <div class="network-stat-card"><span>Top Consumer</span><strong id="network-top-device">—</strong></div>
+                  <div class="network-stat-card"><span>Top RTT</span><strong id="network-top-rtt">—</strong></div>
                 </div>
                 <div class="network-chart-wrap">
                   <canvas id="network-chart" aria-label="Live WireGuard RX and TX traffic chart"></canvas>
                   <div class="network-chart-empty" id="network-chart-empty" hidden></div>
                 </div>
                 <div class="network-legend">
-                  <span class="legend-item"><span class="legend-dot rx"></span>RX</span>
-                  <span class="legend-item"><span class="legend-dot tx"></span>TX</span>
-                  <span>60 second rolling window · Mbps</span>
+                  <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
+                  <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
+                  <span>Device lines · 60 second rolling window · Mbps</span>
                 </div>
+                <div class="network-consumers" id="network-consumers"></div>
               </section>
             </div>
             <div class="actions">
@@ -4086,13 +4075,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
   </div>
   <script>
     (function() {{
-      const key = "{SESSION_STORAGE_KEY}";
-      let internalSubmit = false;
-
-      document.addEventListener("submit", function() {{
-        internalSubmit = true;
-      }}, true);
-
       const activeTabKey = "haibox_active_config_tab";
       const tabButtons = document.querySelectorAll("[data-tab-target]");
       const tabPages = document.querySelectorAll("[data-tab-page]");
@@ -4145,6 +4127,11 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       function renderDashboard(payload) {{
         const peers = Array.isArray(payload.peers) ? payload.peers : [];
         const devices = Array.isArray(payload.devices) ? payload.devices : [];
+        latestDeviceLatency = {{}};
+        devices.forEach(function(device) {{
+          const key = deviceKeyFromName(device.name);
+          if (key && device.latency_ms !== null && device.latency_ms !== undefined) latestDeviceLatency[key] = Number(device.latency_ms);
+        }});
         if (peerOnlineCount) peerOnlineCount.textContent = String(peers.filter(function(p) {{ return p.online; }}).length);
         if (lanOnlineCount) lanOnlineCount.textContent = String(devices.filter(function(d) {{ return d.online; }}).length);
         if (lanTotalCount) lanTotalCount.textContent = String(devices.length);
@@ -4179,8 +4166,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         }});
       }}
 
+      function statusTabIsActive() {{
+        const networkPage = document.querySelector('[data-tab-page="network"]');
+        return document.visibilityState === "visible" && (dashboardTabIsActive() || (networkPage && !networkPage.hidden));
+      }}
+
       async function pollDashboard() {{
-        if (!dashboardTabIsActive() || dashboardRequestActive) return;
+        if (!statusTabIsActive() || dashboardRequestActive) return;
         dashboardRequestActive = true;
         try {{
           const response = await fetch("/api/dashboard-status", {{ cache: "no-store", credentials: "same-origin" }});
@@ -4195,7 +4187,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function updateDashboardPolling() {{
         if (dashboardTimer !== null) {{ window.clearInterval(dashboardTimer); dashboardTimer = null; }}
-        if (dashboardTabIsActive()) {{
+        if (statusTabIsActive()) {{
           pollDashboard();
           dashboardTimer = window.setInterval(pollDashboard, 5000);
         }}
@@ -4207,6 +4199,16 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       const txNow = document.getElementById("network-tx-now");
       const rxPeak = document.getElementById("network-rx-peak");
       const txPeak = document.getElementById("network-tx-peak");
+      const topDevice = document.getElementById("network-top-device");
+      const topRtt = document.getElementById("network-top-rtt");
+      const consumerList = document.getElementById("network-consumers");
+      const deviceMeta = {{
+        router: ["Router", "#c084fc"], streamhub: ["StreamHub", "#ffb454"],
+        hsg: ["HSG / HMG", "#ff6b8a"], makito: ["Makito X4E", "#4dd7ff"],
+        windows: ["Windows", "#7aa2ff"], proxmox: ["Proxmox", "#9ee493"],
+        other: ["Other / VPN", "#8b98a5"]
+      }};
+      let latestDeviceLatency = {{}};
       let networkTimer = null;
       let previousNetworkSample = null;
       let networkSamples = [];
@@ -4220,6 +4222,32 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         if (!Number.isFinite(value) || value < 0) return "0.00 Mbps";
         if (value >= 100) return value.toFixed(1) + " Mbps";
         return value.toFixed(2) + " Mbps";
+      }}
+
+      function deviceKeyFromName(name) {{
+        const value = String(name || "").toLowerCase();
+        if (value.indexOf("stream") >= 0) return "streamhub";
+        if (value.indexOf("hsg") >= 0 || value.indexOf("hmg") >= 0) return "hsg";
+        if (value.indexOf("makito") >= 0) return "makito";
+        if (value.indexOf("windows") >= 0) return "windows";
+        if (value.indexOf("proxmox") >= 0) return "proxmox";
+        if (value.indexOf("router") >= 0) return "router";
+        return "";
+      }}
+
+      function renderConsumers(rates) {{
+        const entries = Object.keys(deviceMeta).map(function(key) {{
+          return {{ key:key, label:deviceMeta[key][0], rate:Number(rates[key] || 0), rtt:latestDeviceLatency[key] }};
+        }}).sort(function(a,b) {{ return b.rate-a.rate; }});
+        const maximum = Math.max(0.001, entries.reduce(function(m,item) {{ return Math.max(m,item.rate); }}, 0));
+        if (topDevice) topDevice.textContent = entries[0] && entries[0].rate > 0.001 ? entries[0].label : "Idle";
+        const rtts = entries.filter(function(item) {{ return Number.isFinite(item.rtt); }}).sort(function(a,b) {{ return b.rtt-a.rtt; }});
+        if (topRtt) topRtt.textContent = rtts.length ? rtts[0].label + " · " + rtts[0].rtt.toFixed(1) + " ms" : "No reply";
+        if (consumerList) consumerList.innerHTML = entries.map(function(item) {{
+          const width = item.rate > 0 ? Math.max(2, item.rate / maximum * 100) : 0;
+          const rtt = Number.isFinite(item.rtt) ? item.rtt.toFixed(1) + " ms" : "—";
+          return '<div class="consumer-row"><strong>' + escapeHtml(item.label) + '</strong><span class="consumer-bar"><i style="width:' + width.toFixed(1) + '%"></i></span><span class="consumer-rate">' + formatMbps(item.rate) + '</span><span class="consumer-rtt">' + rtt + '</span></div>';
+        }}).join("");
       }}
 
       function networkTabIsActive() {{
@@ -4269,12 +4297,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               const tx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
               peakRx = Math.max(peakRx, rx);
               peakTx = Math.max(peakTx, tx);
-              networkSamples.push({{ rx: rx, tx: tx }});
+              const deviceRates = {{}};
+              Object.keys(deviceMeta).filter(function(key) {{ return key !== "other"; }}).forEach(function(key) {{
+                const current = (sample.devices || {{}})[key] || {{}};
+                const previous = (previousNetworkSample.devices || {{}})[key] || {{}};
+                const bytes = Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) + Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0));
+                deviceRates[key] = bytes * 8 / elapsed / 1000000;
+              }});
+              const classifiedRate = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value; }}, 0);
+              deviceRates.other = Math.max(0, rx + tx - classifiedRate);
+              networkSamples.push({{ rx: rx, tx: tx, devices: deviceRates }});
               if (networkSamples.length > 60) networkSamples.shift();
               if (rxNow) rxNow.textContent = formatMbps(rx);
               if (txNow) txNow.textContent = formatMbps(tx);
               if (rxPeak) rxPeak.textContent = formatMbps(peakRx);
               if (txPeak) txPeak.textContent = formatMbps(peakTx);
+              renderConsumers(deviceRates);
               drawNetworkChart();
             }}
           }}
@@ -4306,7 +4344,10 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         const pad = {{ left: 58, right: 20, top: 22, bottom: 34 }};
         const plotW = Math.max(1, rect.width - pad.left - pad.right);
         const plotH = Math.max(1, rect.height - pad.top - pad.bottom);
-        const maxData = networkSamples.reduce(function(maximum, point) {{ return Math.max(maximum, point.rx, point.tx); }}, 0);
+        const maxData = networkSamples.reduce(function(maximum, point) {{
+          const deviceMax = Object.values(point.devices || {{}}).reduce(function(m, value) {{ return Math.max(m, Number(value) || 0); }}, 0);
+          return Math.max(maximum, point.rx, point.tx, deviceMax);
+        }}, 0);
 
         function scaleTarget(value) {{
           if (!Number.isFinite(value) || value <= 0) return 10;
@@ -4429,6 +4470,25 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
         traceSeries('rx', '#12b8ff', 'rgba(18, 184, 255, 0.18)', 'rgba(18, 184, 255, 0.015)');
         traceSeries('tx', '#5ee6a8', 'rgba(94, 230, 168, 0.16)', 'rgba(94, 230, 168, 0.012)');
+
+        function traceDevice(deviceKey, color) {{
+          if (!networkSamples.length) return;
+          const points = networkSamples.map(function(point, index) {{
+            const slot = Math.max(0, 60 - networkSamples.length + index);
+            const value = Number((point.devices || {{}})[deviceKey] || 0);
+            return {{ x:pad.left + plotW * slot / 59, y:pad.top + plotH * (1 - Math.min(yMax, value) / yMax) }};
+          }});
+          ctx.beginPath();
+          points.forEach(function(point, index) {{
+            if (index === 0) ctx.moveTo(point.x, point.y); else ctx.lineTo(point.x, point.y);
+          }});
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 1.45;
+          ctx.globalAlpha = 0.9;
+          ctx.stroke();
+          ctx.globalAlpha = 1;
+        }}
+        Object.keys(deviceMeta).forEach(function(key) {{ traceDevice(key, deviceMeta[key][1]); }});
       }}
 
       document.addEventListener("visibilitychange", function() {{ updateNetworkPolling(); updateDashboardPolling(); }});
@@ -4528,31 +4588,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         refreshExtraRuleTitles();
       }}
 
-      window.addEventListener("pagehide", function() {{
-        if (internalSubmit) {{
-          return;
-        }}
-        try {{
-          window.sessionStorage.removeItem(key);
-        }} catch (err) {{}}
-        if (navigator.sendBeacon) {{
-          navigator.sendBeacon("/logout", "");
-        }} else {{
-          fetch("/logout", {{ method: "POST", credentials: "same-origin", keepalive: true }});
-        }}
-      }});
-
-      try {{
-        if (!window.sessionStorage.getItem(key)) {{
-          fetch("/logout", {{ method: "POST", credentials: "same-origin", keepalive: true }})
-            .finally(function() {{
-              window.location.replace("/login?reauth=1");
-            }});
-          return;
-        }}
-      }} catch (err) {{
-        window.location.replace("/login");
-      }}
     }})();
   </script>
 </body>
@@ -4669,8 +4704,7 @@ def standard_port_reservations(values: Dict[str, str]) -> Dict[str, List[Tuple[i
     add_reservation(reservations, "udp", safe_int(values.get("WG_PORT", "")), safe_int(values.get("WG_PORT", "")), "WireGuard")
     add_reservation(reservations, "tcp", safe_int(values.get("WEBUI_PORT", "")), safe_int(values.get("WEBUI_PORT", "")), "Web UI")
 
-    if values.get("EXPOSE_PROXMOX_GUI") == "Y":
-        add_reservation(reservations, "tcp", 8006, 8006, "Proxmox GUI")
+    add_reservation(reservations, "tcp", 8006, 8006, "Proxmox GUI")
 
     add_reservation(reservations, "tcp", 8080, 8080, "Router admin")
     add_reservation(reservations, "tcp", 8081, 8081, "Router LuCI")
@@ -4857,7 +4891,6 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
         "WEBUI_ENABLED": "Y",
         "WEBUI_BIND": current.get("WEBUI_BIND", "0.0.0.0"),
         "EXTRA_PF_RULES": current.get("EXTRA_PF_RULES", ""),
-        "EXPOSE_PROXMOX_GUI": "Y" if "EXPOSE_PROXMOX_GUI" in form else "N",
         "UFW_WAS_ACTIVE": current.get("UFW_WAS_ACTIVE", "N"),
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
@@ -5124,11 +5157,38 @@ def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
     return {"timestamp": int(time.time() * 1000), "applied": True, "peers": peers, "devices": devices}
 
 
+def device_traffic_counters() -> Dict[str, Dict[str, int]]:
+    counters: Dict[str, Dict[str, int]] = {}
+    try:
+        result = subprocess.run(
+            ["iptables-save", "-c", "-t", "filter"],
+            capture_output=True,
+            text=True,
+            timeout=2.0,
+            check=False,
+        )
+        if result.returncode != 0:
+            return counters
+        pattern = re.compile(
+            r'^\[(\d+):(\d+)\] -A HAIBOX_STATS .*--comment "?(rx|tx):([a-z0-9_-]+)"?'
+        )
+        for line in result.stdout.splitlines():
+            match = pattern.search(line)
+            if not match:
+                continue
+            direction, device = match.group(3), match.group(4)
+            counters.setdefault(device, {"rx_bytes": 0, "tx_bytes": 0})
+            counters[device][direction + "_bytes"] += int(match.group(2))
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return {}
+    return counters
+
+
 REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.4"
+    server_version = "HAIBOX-WebUI/6.5-dev.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5252,9 +5312,15 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 rx_bytes = int((stats_dir / "rx_bytes").read_text(encoding="ascii").strip())
                 tx_bytes = int((stats_dir / "tx_bytes").read_text(encoding="ascii").strip())
-                self.send_json({"available": True, "timestamp": int(time.time() * 1000), "rx_bytes": rx_bytes, "tx_bytes": tx_bytes})
+                self.send_json({
+                    "available": True,
+                    "timestamp": int(time.time() * 1000),
+                    "rx_bytes": rx_bytes,
+                    "tx_bytes": tx_bytes,
+                    "devices": device_traffic_counters(),
+                })
             except (OSError, ValueError):
-                self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0})
+                self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0, "devices": {}})
             return
         if path == "/download-support-bundle":
             bundle = build_support_bundle()
@@ -5369,7 +5435,10 @@ class Handler(BaseHTTPRequestHandler):
             current = merged_state()
             values, errors, password = apply_form_values(form, current)
             if errors:
-                self.send_html(render_page(values, " ".join(errors), "", "error"), 400)
+                message = "Configuration not applied. Fix the following fields:\n" + "\n".join(
+                    "%d. %s" % (index, error) for index, error in enumerate(errors, 1)
+                )
+                self.send_html(render_page(values, message, "", "error"), 400)
                 return
 
             try:
@@ -5395,7 +5464,8 @@ class Handler(BaseHTTPRequestHandler):
                 )
 
             if rc != 0:
-                message = "Apply failed. " + message
+                detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "No diagnostic detail was returned.")
+                message = "Apply failed and the previous configuration was restored.\nReason: " + detail
             self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
             return
 
@@ -5692,6 +5762,10 @@ iptables_cleanup_chains() {
   iptables -D FORWARD -j "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
   iptables -F "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
   iptables -X "${TAG_CHAIN_FWD}" >/dev/null 2>&1 || true
+
+  iptables -D FORWARD -j "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
+  iptables -F "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
+  iptables -X "${TAG_CHAIN_STATS}" >/dev/null 2>&1 || true
 }
 
 # helper: add DNAT rule for BOTH public iface and wg0 (hairpin)
@@ -5751,6 +5825,25 @@ iptables_apply_rules() {
   iptables -N "${TAG_CHAIN_FWD}"
   iptables -A FORWARD -j "${TAG_CHAIN_FWD}"
 
+  # Dedicated non-terminating counters provide per-device traffic telemetry.
+  # They do not alter packet handling and are read by the Web UI.
+  iptables -N "${TAG_CHAIN_STATS}"
+  iptables -I FORWARD 1 -j "${TAG_CHAIN_STATS}"
+  local stats_name stats_ip
+  while IFS='|' read -r stats_name stats_ip; do
+    [[ -n "${stats_name}" && -n "${stats_ip}" ]] || continue
+    iptables -A "${TAG_CHAIN_STATS}" -i "${WG_NAME}" -s "${stats_ip}" -m comment --comment "rx:${stats_name}"
+    iptables -A "${TAG_CHAIN_STATS}" -o "${WG_NAME}" -d "${stats_ip}" -m comment --comment "tx:${stats_name}"
+  done <<EOF
+router|${ROUTER_LAN_IP}
+streamhub|${STREAMHUB_IP}
+hsg|${HSG_IP}
+makito|${MAKITO_ENC_IP}
+windows|${WINDOWS_ORCH_IP}
+proxmox|${PROXMOX_IP}
+EOF
+  iptables -A "${TAG_CHAIN_STATS}" -j RETURN
+
   # Internet egress NAT (support both GL masquerade modes)
   iptables -t nat -C POSTROUTING -s "${LAN_CIDR}" -o "${PUB_IFACE}" -j MASQUERADE >/dev/null 2>&1 || \
     iptables -t nat -A POSTROUTING -s "${LAN_CIDR}" -o "${PUB_IFACE}" -j MASQUERADE
@@ -5767,10 +5860,8 @@ iptables_apply_rules() {
   iptables -A "${TAG_CHAIN_FWD}" -i "${PUB_IFACE}" -o "${WG_NAME}" -j ACCEPT
   iptables -A "${TAG_CHAIN_FWD}" -i "${WG_NAME}" -o "${WG_NAME}" -j ACCEPT
 
-  # Optional Proxmox GUI
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    dnat_both tcp "${PROXMOX_GUI_PUB_PORT}" "${PROXMOX_IP}:8006"
-  fi
+  # Proxmox GUI is part of the standard HAIBOX public service map.
+  dnat_both tcp "${PROXMOX_GUI_PUB_PORT}" "${PROXMOX_IP}:8006"
 
   # Router
   dnat_both tcp "${ROUTER_ADMIN_PUB_PORT}" "${ROUTER_LAN_IP}:8080"
@@ -5886,9 +5977,7 @@ do_test() {
     echo
   fi
   echo "Client-side tests:"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "  Proxmox GUI:   https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "  Proxmox GUI:   https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   if [[ "${WEBUI_ENABLED}" == "Y" ]]; then
     echo "  Web UI:        https://${PUB_IP}:${WEBUI_PORT}"
   fi
@@ -5912,7 +6001,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.4 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.1 - System Health"
   echo "============================================================"
   echo
 
@@ -6123,9 +6212,7 @@ remove_all() {
 print_apply_summary() {
   echo
   echo "GL-AXT1800 WireGuard config saved to: ${ROUTER_CONF_OUT}"
-  if [[ "${EXPOSE_PROXMOX_GUI}" == "Y" ]]; then
-    echo "Proxmox GUI exposed on: https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
-  fi
+  echo "Proxmox GUI exposed on: https://${PUB_IP}:${PROXMOX_GUI_PUB_PORT}"
   echo
   echo "GL-AXT1800 VPN options recommendation:"
   echo "  Kill Switch: ON"
@@ -6151,8 +6238,6 @@ namespace = {"__name__": "haibox_validation"}
 exec(compile(app, "haibox_webui.py", "exec"), namespace)
 state = namespace["merged_state"]()
 form = {key: [value] for key, value in state.items()}
-if state.get("EXPOSE_PROXMOX_GUI") != "Y":
-    form.pop("EXPOSE_PROXMOX_GUI", None)
 for rule in namespace["parse_extra_rules"](state.get("EXTRA_PF_RULES", "")):
     for field, value in {
         "PROTO": rule["proto"], "TARGET_IP": rule["target_ip"], "LABEL": rule["label"],
@@ -6330,7 +6415,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.4 (VPS GOLDEN)"
+    echo "HAIBOX WireGuard v6.5-dev.1 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
