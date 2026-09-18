@@ -4,6 +4,15 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Changed in v6.5-dev.6
+
+- Enlarged the HAIBOX logo while retaining the compact left-aligned header.
+- Action results now appear in the header only when an action has actually produced a message; the permanent Ready banner was removed.
+- Removed the redundant Web UI metric and renamed WireGuard to WireGuard Port.
+- Removed StreamHub Alt from the direct Public Services shortcuts.
+- Added an expandable Port Redirects summary for occasional inspection of HTTPS, SSH, RTMP, router, and Proxmox mappings.
+- Simplified peer rows to handshake age and LAN device rows to ICMP RTT only, removing verbose service-probe details from Overview.
+
 ### Changed in v6.5-dev.5
 
 - Replaced the oversized hero area with a compact header using the HAIBOX logo, rectangular navigation, and a single Logout action.
