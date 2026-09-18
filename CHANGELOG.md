@@ -6,7 +6,12 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 Development target: v6.4.
 
-Current test build: v6.4-dev.1.
+Current test build: v6.4-dev.2.
+
+### Fixed in v6.4-dev.2
+
+- Stacked Connected Peers and LAN Devices cards vertically to prevent compressed and overlapping service details.
+- A device that answers ICMP is now reported as Online even when an optional monitored service is closed; the closed service remains visible in the detail line.
 
 ### Added in v6.4-dev.1
 

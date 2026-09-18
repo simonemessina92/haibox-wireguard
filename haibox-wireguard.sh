@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.4-dev.1
+# Version 6.4-dev.2
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.4-dev.1 adds build identity, a sanitized support bundle and
+# Version 6.4-dev.2 adds build identity, a sanitized support bundle and
 # service-aware LAN monitoring while preserving the tested V6.3 networking.
 # ==============================================================================
 
@@ -583,7 +583,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.4-dev.1"
+SCRIPT_VERSION = "6.4-dev.2"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -3583,7 +3583,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .copy-icon::after {{ left: 5px; top: 1px; background: var(--panel-soft); }}
     .dashboard-grid {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
     }}
     .dashboard-card {{
@@ -4993,7 +4993,7 @@ def _probe_device(name: str, ip: str, ports: List[Tuple[int, str]]) -> Dict[str,
         for port, label in ports
     ]
     service_online = any(bool(service["online"]) for service in services)
-    if ping_online and service_online:
+    if ping_online:
         status = "online"
     elif service_online:
         status = "service_online"
@@ -5117,7 +5117,7 @@ LOGIN_FAILURES: Dict[str, List[float]] = {}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.4-dev.1"
+    server_version = "HAIBOX-WebUI/6.4-dev.2"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5870,7 +5870,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.4-dev.1 - System Health"
+  echo " HAIBOX WireGuard v6.4-dev.2 - System Health"
   echo "============================================================"
   echo
 
@@ -6268,7 +6268,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.4-dev.1 (VPS DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.4-dev.2 (VPS DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
