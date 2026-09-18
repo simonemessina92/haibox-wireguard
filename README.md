@@ -16,7 +16,7 @@ Install the latest stable release on a clean VPS as `root`:
 bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main/install.sh)
 ```
 
-[Download v6.4 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.4/haibox-wireguard_v6.4.sh) · [SHA-256 checksum](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.4/haibox-wireguard_v6.4.sh.sha256) · [Release notes](https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4)
+[Download v6.5 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.5/haibox-wireguard_v6.5.sh) · [SHA-256 checksum](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.5/haibox-wireguard_v6.5.sh.sha256) · [Release notes](https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5)
 
 ## Architecture
 
@@ -37,7 +37,7 @@ flowchart LR
 
 The VPS handles the public edge, routing and controlled port forwarding. The HAIBOX router maintains the encrypted tunnel and routes the local `192.168.10.0/24` network without requiring inbound connectivity at the venue.
 
-## Golden v6.4
+## Golden v6.5
 
 - Automated WireGuard server deployment and HAIBOX router configuration
 - Full-tunnel Internet breakout through the VPS public IPv4
@@ -45,13 +45,19 @@ The VPS handles the public edge, routing and controlled port forwarding. The HAI
 - Persistent routing, NAT and firewall rules
 - Optional Remote VPN Client configuration
 - Authenticated HTTPS control panel on TCP `65000`
-- Live WireGuard peer, traffic and HAIBOX LAN service monitoring
-- Network statistics and system health diagnostics
+- Compact operational Overview with direct links to published HAIBOX services
+- Live WireGuard peer and HAIBOX LAN monitoring with handshake and ICMP RTT
+- Live RX/TX graph plus per-device traffic accounting from the HAIBOX perspective
+- Clear Configuration and VPN Profiles workspaces
+- Expandable public-port redirect summary and compact downloadable client profiles
+- Safe POST/Redirect/GET actions: browser refresh never repeats Apply or restarts WireGuard
+- Proxmox HTTPS on TCP `8006` always published through the VPS
+- Clear validation errors, system health diagnostics and transient action messages
 - Sanitized support bundle for troubleshooting
 - Build identity, release channel and installed-script SHA-256
 - Automatic first-login setup with mandatory password replacement
 
-The networking behavior in v6.4 is based on the physically tested Golden baseline and has been validated on the HAIBOX test environment before release.
+The networking behavior in v6.5 preserves the physically tested Golden baseline. The release was validated with live streaming traffic, repeated browser refreshes, Remote VPN Client creation and the complete Web UI workflow on the Amsterdam HAIBOX test environment.
 
 ## Stable installation
 
