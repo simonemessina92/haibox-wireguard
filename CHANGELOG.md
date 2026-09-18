@@ -4,6 +4,11 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Fixed in v6.5-dev.7
+
+- Action messages now use the otherwise empty header space between the HAIBOX logo and navigation without creating a second row or changing header height on desktop.
+- Action messages automatically fade out and are removed after 10 seconds.
+
 ### Changed in v6.5-dev.6
 
 - Enlarged the HAIBOX logo while retaining the compact left-aligned header.
