@@ -4,6 +4,13 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Changed in v6.5-dev.4
+
+- Reorganized the Web UI into three clear areas: Overview, Configuration, and VPN Profiles.
+- Combined live HAIBOX status and Network Statistics in the default Overview page.
+- Grouped Core and Extra Port Forwarding settings inside Configuration; Apply, Test, and System Health actions now appear only there.
+- Replaced the large always-visible WireGuard configuration blocks with compact profile cards, copy/download actions, and expandable configuration text.
+
 ### Fixed in v6.5-dev.3
 
 - Converted Web UI actions to POST/Redirect/GET so refreshing the result page cannot repeat Apply, restart WireGuard, or repeat other state-changing actions.
