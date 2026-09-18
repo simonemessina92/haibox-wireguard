@@ -23,7 +23,7 @@ set -euo pipefail
 #   - StreamHub service ports and UDP 7900-7940.
 #   - Makito X4E HTTPS GUI and UDP 30000-30004.
 #   - HSG/HMG HTTPS GUI, SSH, RTMP and SRT UDP 9000-9100.
-#   - Optional Proxmox HTTPS GUI.
+#   - Proxmox HTTPS GUI, always published on TCP 8006.
 #
 # Network values and service addresses can be changed during setup.
 #
