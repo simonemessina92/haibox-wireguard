@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.3
+# Version 6.4
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,8 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.3 adds a live HAIBOX dashboard with WireGuard peer status and
-# configured LAN-device reachability while preserving the tested V6.2 behavior.
+# Version 6.4 Golden adds build diagnostics, support bundles, service-aware
+# monitoring and streamlined first-login authentication to the v6.3 baseline.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -400,55 +400,20 @@ prompt_config() {
   ok "Saved ${STATE_FILE}"
 }
 
-prompt_webui_setup() {
-  local v p1 p2
-
-  echo
-  echo "Web UI setup."
-
-  while true; do
-    read -r -p "Web UI username [${WEBUI_USER}]: " v
-    [[ -z "${v}" ]] && v="${WEBUI_USER}"
-    if valid_webui_user "${v}"; then
-      WEBUI_USER="${v}"
-      break
-    fi
-    warn "Use only letters, numbers, dot, underscore or dash."
-  done
-
-  while true; do
-    read -r -s -p "Web UI password: " p1
-    echo
-    read -r -s -p "Confirm Web UI password: " p2
-    echo
-    if [[ -z "${p1}" ]]; then
-      warn "Password cannot be empty."
-      continue
-    fi
-    if [[ "${p1}" != "${p2}" ]]; then
-      warn "Passwords do not match."
-      continue
-    fi
-    if (( ${#p1} < 12 )); then
-      warn "New passwords must be at least 12 characters."
-      continue
-    fi
-    WEBUI_PASSWORD="${p1}"
-    break
-  done
-
-  while true; do
-    read -r -p "Web UI TCP port [${WEBUI_PORT}]: " v
-    [[ -z "${v}" ]] && v="${WEBUI_PORT}"
-    if valid_tcp_port "${v}"; then
-      WEBUI_PORT="${v}"
-      break
-    fi
-    warn "Choose a TCP port between 1024 and 65535."
-  done
-
+automatic_webui_setup() {
+  WEBUI_USER="${WEBUI_USER:-admin}"
+  WEBUI_PORT="${WEBUI_PORT:-65000}"
   WEBUI_BIND="0.0.0.0"
   WEBUI_ENABLED="Y"
+  if [[ ! -s "${WEBUI_AUTH_FILE}" ]]; then
+    WEBUI_USER="admin"
+    WEBUI_PASSWORD="password"
+    WEBUI_FORCE_PASSWORD_CHANGE="Y"
+    ok "Initial Web UI credentials configured: admin / password"
+    warn "A new password will be required at the first login."
+  else
+    ok "Existing Web UI credentials preserved."
+  fi
 }
 
 install_deps() {
@@ -475,7 +440,7 @@ install_self_copy() {
 
 write_webui_auth() {
   [[ -n "${WEBUI_PASSWORD:-}" ]] || { err "Web UI password is empty."; exit 1; }
-  python3 - "${WEBUI_USER}" "${WEBUI_AUTH_FILE}" 3<<< "${WEBUI_PASSWORD}" <<'PY'
+  python3 - "${WEBUI_USER}" "${WEBUI_AUTH_FILE}" "${WEBUI_FORCE_PASSWORD_CHANGE:-N}" 3<<< "${WEBUI_PASSWORD}" <<'PY'
 import hashlib
 import os
 import secrets
@@ -486,6 +451,7 @@ user = sys.argv[1]
 with os.fdopen(3, "r", encoding="utf-8") as password_input:
     password = password_input.read()[:-1]
 out_path = sys.argv[2]
+force_password_change = sys.argv[3]
 salt = secrets.token_hex(16)
 iterations = 200000
 digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
@@ -498,6 +464,7 @@ content = "\n".join([
     f'WEBUI_PASS_SALT="{salt}"',
     f'WEBUI_PASS_ITERATIONS="{iterations}"',
     f'WEBUI_PASS_HASH="{digest}"',
+    f'WEBUI_FORCE_PASSWORD_CHANGE="{force_password_change}"',
 ]) + "\n"
 
 with open(out_path, "w", encoding="utf-8") as handle:
@@ -551,14 +518,19 @@ import base64
 import hashlib
 import hmac
 import html
+import io
 import ipaddress
 import json
 import os
+import platform
 import re
 import secrets
+import signal
+import socket
 import ssl
 import subprocess
 import sys
+import tarfile
 import time
 import tempfile
 import threading
@@ -577,6 +549,9 @@ SCRIPT_PATH = "/usr/local/sbin/haibox-wireguard"
 WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
+APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
+SCRIPT_VERSION = "6.4"
+RELEASE_CHANNEL = "GOLDEN"
 LOGO_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAFhYAAAe7CAYAAADi0l4NAAAACXBIWXMAAC4jAAAuIwF4pT92AAAgAElEQVR4nOzdy0HjyhaG0f/E"
@@ -2436,7 +2411,11 @@ def applied_state() -> Optional[Dict[str, str]]:
     return state
 
 
-def write_auth(user: str, password: Optional[str] = None) -> None:
+def password_change_required() -> bool:
+    return load_shell_kv(AUTH_FILE).get("WEBUI_FORCE_PASSWORD_CHANGE", "N").upper() == "Y"
+
+
+def write_auth(user: str, password: Optional[str] = None, force_password_change: Optional[bool] = None) -> None:
     auth = load_shell_kv(AUTH_FILE)
     if password:
         salt = secrets.token_hex(16)
@@ -2454,11 +2433,14 @@ def write_auth(user: str, password: Optional[str] = None) -> None:
         if not salt or not digest:
             raise ValueError("Missing stored password hash. Set a new password.")
 
+    if force_password_change is None:
+        force_password_change = auth.get("WEBUI_FORCE_PASSWORD_CHANGE", "N").upper() == "Y"
     content = "\n".join([
         f'WEBUI_USER="{shell_escape(user)}"',
         f'WEBUI_PASS_SALT="{salt}"',
         f'WEBUI_PASS_ITERATIONS="{iterations}"',
         f'WEBUI_PASS_HASH="{digest}"',
+        f'WEBUI_FORCE_PASSWORD_CHANGE="{"Y" if force_password_change else "N"}"',
     ]) + "\n"
     atomic_write(AUTH_FILE, content)
 
@@ -2995,11 +2977,43 @@ def render_login_bootstrap() -> str:
     try {{
       window.sessionStorage.setItem("{SESSION_STORAGE_KEY}", "1");
     }} catch (err) {{}}
-    window.location.replace("/");
+    window.location.replace("/change-password");
   </script>
 </body>
 </html>
 """
+
+
+def render_change_password_page(message: str = "", level: str = "info") -> str:
+    status_html = f'<div class="login-status">{esc(message)}</div>' if message else ""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set HAIBOX Password</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; font-family:Aptos,"Segoe UI",sans-serif; color:#f5fbff; background:linear-gradient(180deg,#04070c,#08111a 55%,#060b12); }}
+    .panel {{ width:min(440px,100%); padding:28px; background:rgba(12,18,27,.96); border:1px solid rgba(150,176,194,.14); border-radius:24px; box-shadow:0 22px 48px rgba(0,0,0,.34); }}
+    h1 {{ margin:0; font-size:25px; }} p {{ color:#90a9ba; line-height:1.5; }}
+    form,label {{ display:grid; gap:10px; }} form {{ margin-top:20px; gap:15px; }} label {{ color:#90a9ba; font-size:12px; font-weight:700; text-transform:uppercase; }}
+    input {{ width:100%; padding:13px 14px; border:1px solid rgba(146,172,190,.18); border-radius:14px; background:#0b121a; color:#f5fbff; outline:none; }}
+    input:focus {{ border-color:#00a3e0; box-shadow:0 0 0 4px rgba(0,163,224,.18); }}
+    button {{ border:0; border-radius:999px; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; color:white; background:linear-gradient(135deg,#00a3e0,#008bc5); }}
+    .login-status {{ margin-top:16px; padding:12px 14px; border-radius:14px; background:rgba(0,163,224,.12); color:#a8e9ff; font-size:14px; }}
+  </style>
+</head>
+<body><section class="panel">
+  <h1>Choose a new password</h1>
+  <p>The initial password must be replaced before the control panel can be used. Use at least 10 characters.</p>
+  {status_html}
+  <form method="post" action="/change-password" autocomplete="off">
+    <label>New password<input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <label>Confirm password<input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+    <button type="submit">Save New Password</button>
+  </form>
+</section></body></html>"""
 
 
 def render_logout_bootstrap() -> str:
@@ -3023,6 +3037,122 @@ def render_logout_bootstrap() -> str:
 """
 
 
+def _script_sha256() -> str:
+    try:
+        digest = hashlib.sha256()
+        with open(SCRIPT_PATH, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return "unavailable"
+
+
+def _format_uptime(seconds: float) -> str:
+    total_minutes = max(0, int(seconds // 60))
+    days, remainder = divmod(total_minutes, 24 * 60)
+    hours, minutes = divmod(remainder, 60)
+    if days:
+        return f"{days}d {hours}h {minutes}m"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def build_information() -> Dict[str, str]:
+    os_name = platform.platform()
+    try:
+        os_release = load_shell_kv("/etc/os-release")
+        os_name = os_release.get("PRETTY_NAME", os_name)
+    except OSError:
+        pass
+    try:
+        uptime = _format_uptime(float(Path("/proc/uptime").read_text(encoding="ascii").split()[0]))
+    except (OSError, ValueError, IndexError):
+        uptime = "unavailable"
+    try:
+        applied_at = time.strftime(
+            "%Y-%m-%d %H:%M:%S UTC",
+            time.gmtime(Path(APPLIED_STATE_FILE).stat().st_mtime),
+        )
+    except OSError:
+        applied_at = "never"
+    try:
+        started = subprocess.run(
+            ["systemctl", "show", WEBUI_SERVICE_NAME, "--property=ActiveEnterTimestamp", "--value"],
+            capture_output=True, text=True, timeout=2, check=False,
+        ).stdout.strip() or "unavailable"
+    except (OSError, subprocess.SubprocessError):
+        started = "unavailable"
+    return {
+        "version": SCRIPT_VERSION,
+        "channel": RELEASE_CHANNEL,
+        "sha256": _script_sha256(),
+        "os": os_name,
+        "kernel": platform.release(),
+        "uptime": uptime,
+        "last_apply": applied_at,
+        "webui_started": started,
+    }
+
+
+def _command_output(command: List[str], timeout: float = 8.0) -> str:
+    try:
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=timeout, check=False,
+        )
+        output = result.stdout
+        if result.stderr:
+            output += ("\n" if output else "") + result.stderr
+        return f"$ {' '.join(command)}\nexit={result.returncode}\n{output}".rstrip() + "\n"
+    except subprocess.TimeoutExpired:
+        return f"$ {' '.join(command)}\nERROR: command timed out\n"
+    except OSError as exc:
+        return f"$ {' '.join(command)}\nERROR: {exc}\n"
+
+
+def build_support_bundle() -> bytes:
+    state = merged_state()
+    info = build_information()
+    safe_state = {key: state.get(key, "") for key in STATE_KEYS}
+    files: Dict[str, str] = {
+        "00-build-information.json": json.dumps(info, indent=2, sort_keys=True) + "\n",
+        "01-sanitized-state.json": json.dumps(safe_state, indent=2, sort_keys=True) + "\n",
+        "02-system-health.txt": _command_output([SCRIPT_PATH, "--health"], timeout=30),
+        "03-wireguard-status.txt": _command_output(["wg", "show", "wg0"]),
+        "04-ip-addresses.txt": _command_output(["ip", "-brief", "address"]),
+        "05-ip-routes.txt": _command_output(["ip", "-4", "route", "show"]),
+        "06-haibox-nat-chain.txt": _command_output(["iptables", "-t", "nat", "-S", "HAIBOX_NAT"]),
+        "07-haibox-forward-chain.txt": _command_output(["iptables", "-S", "HAIBOX_FWD"]),
+        "08-wireguard-service.txt": _command_output(["systemctl", "status", "wg-quick@wg0", "--no-pager", "--full"]),
+        "09-webui-service.txt": _command_output(["systemctl", "status", WEBUI_SERVICE_NAME, "--no-pager", "--full"]),
+        "10-rules-service.txt": _command_output(["systemctl", "status", "haibox-wg-rules.service", "--no-pager", "--full"]),
+        "11-webui-journal.txt": _command_output(["journalctl", "-u", WEBUI_SERVICE_NAME, "-n", "200", "--no-pager", "--output=short-iso"]),
+        "12-kernel-network.txt": "\n".join([
+            _command_output(["sysctl", "net.ipv4.ip_forward"]),
+            _command_output(["sysctl", "net.ipv4.conf.all.rp_filter"]),
+            _command_output(["sysctl", "net.ipv4.conf.default.rp_filter"]),
+        ]),
+        "13-dashboard-status.json": json.dumps(dashboard_status(applied_state()), indent=2, sort_keys=True) + "\n",
+        "README.txt": (
+            "HAIBOX WireGuard sanitized support bundle\n"
+            "Generated by v" + SCRIPT_VERSION + " (" + RELEASE_CHANNEL + ").\n"
+            "Private WireGuard keys, Web UI credentials, authentication hashes, cookies,\n"
+            "TLS private keys and downloadable client configurations are intentionally excluded.\n"
+        ),
+    }
+    output = io.BytesIO()
+    with tarfile.open(fileobj=output, mode="w:gz", format=tarfile.PAX_FORMAT) as archive:
+        for name, content in files.items():
+            payload = content.encode("utf-8", errors="replace")
+            entry = tarfile.TarInfo(name=name)
+            entry.size = len(payload)
+            entry.mode = 0o600
+            entry.mtime = int(time.time())
+            archive.addfile(entry, io.BytesIO(payload))
+    return output.getvalue()
+
+
 def render_page(state: Dict[str, str], message: str = "", output: str = "", level: str = "info") -> str:
     status_class = {
         "info": "status info",
@@ -3036,6 +3166,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     udp_summary = udp_range_rows(state)
     extra_rules_html = extra_rule_form_rows(state)
     extra_rules_summary = extra_rules_summary_rows(state)
+    build = build_information()
     default_message = "Ready. Apply refreshes WireGuard, updates DNAT and persists the firewall."
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -3458,7 +3589,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .copy-icon::after {{ left: 5px; top: 1px; background: var(--panel-soft); }}
     .dashboard-grid {{
       display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
+      grid-template-columns: minmax(0, 1fr);
       gap: 16px;
     }}
     .dashboard-card {{
@@ -3493,6 +3624,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       background: #607282; box-shadow: 0 0 0 4px rgba(96,114,130,0.10);
     }}
     .status-dot.online {{ background: #38d996; box-shadow: 0 0 0 4px rgba(56,217,150,0.12), 0 0 16px rgba(56,217,150,0.24); }}
+    .status-dot.reachable {{ background: #f2b94b; box-shadow: 0 0 0 4px rgba(242,185,75,0.12), 0 0 14px rgba(242,185,75,0.18); }}
     .status-dot.offline {{ background: #ff5d6c; box-shadow: 0 0 0 4px rgba(255,93,108,0.11), 0 0 14px rgba(255,93,108,0.16); }}
     .status-dot.unknown {{ background: #8093a3; }}
     .device-copy {{ min-width: 0; }}
@@ -3637,8 +3769,21 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           <span>WireGuard</span>
           <strong>UDP {esc(state.get("WG_PORT", ""))}</strong>
         </div>
+        <div class="meta-pill">
+          <span>Build</span>
+          <strong>v{esc(build["version"])} · {esc(build["channel"])}</strong>
+        </div>
+        <div class="meta-pill">
+          <span>Script SHA-256</span>
+          <strong title="{esc(build["sha256"])}">{esc(build["sha256"][:16])}…</strong>
+        </div>
+        <div class="meta-pill">
+          <span>VPS Uptime</span>
+          <strong>{esc(build["uptime"])}</strong>
+        </div>
       </div>
       <div class="hero-actions">
+        <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
         <form class="logout-form" method="post" action="/logout">
           <button class="logout-button" type="submit">Logout</button>
         </form>
@@ -3681,7 +3826,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   </div>
                   <div class="dashboard-card">
                     <div class="dashboard-card-head">
-                      <div><h4>LAN Devices</h4><small>Reachability through the HAIBOX VPN.</small></div>
+                      <div><h4>LAN Devices</h4><small>ICMP and application-service reachability through the HAIBOX VPN.</small></div>
                       <div class="dashboard-summary"><b id="lan-online-count">0</b>/<span id="lan-total-count">0</span> online</div>
                     </div>
                     <div class="dashboard-list" id="lan-status-list">
@@ -3689,7 +3834,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     </div>
                   </div>
                 </div>
-                <p class="dashboard-note">Status is sampled only while this Dashboard tab is open and the page is visible. LAN status uses ICMP reachability; a device that blocks ping can appear offline even when another service is available.</p>
+                <p class="dashboard-note">Status is sampled only while this Dashboard tab is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
               </section>
             </div>
 
@@ -3763,6 +3908,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <div class="grid">
                 {input_row("Web UI username", "WEBUI_USER", state.get("WEBUI_USER", ""))}
                 {input_row("Web UI TCP port", "WEBUI_PORT", state.get("WEBUI_PORT", ""))}
+                {input_row("Current Web UI password", "WEBUI_CURRENT_PASSWORD", "", "password")}
                 {input_row("New Web UI password", "WEBUI_PASSWORD", "", "password")}
                 {input_row("Confirm new password", "WEBUI_PASSWORD_CONFIRM", "", "password")}
               </div>
@@ -3813,7 +3959,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
-            <div class="footer-note">Leave the password fields empty to keep the current password.</div>
+            <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
           </form>
         </div>
       </section>
@@ -3828,6 +3974,27 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               </div>
             </div>
             <div class="summary-list">{management_summary}</div>
+          </div>
+        </section>
+
+        <section class="panel summary-panel">
+          <div class="panel-body">
+            <div class="panel-head">
+              <div>
+                <h2 class="panel-title">Build Information</h2>
+                <p class="panel-subtitle">Exact software and VPS identity.</p>
+              </div>
+            </div>
+            <div class="summary-list">
+              {summary_row("Version", "v" + build["version"], build["channel"])}
+              {summary_row("Script SHA-256", build["sha256"], "Installed source identity")}
+              {summary_row("Operating System", build["os"], "Kernel " + build["kernel"])}
+              {summary_row("Last Apply", build["last_apply"], "Applied-state timestamp")}
+              {summary_row("Web UI Started", build["webui_started"], "Current service activation")}
+            </div>
+            <div class="config-actions-row">
+              <a class="ghost-link" href="/download-support-bundle">Download Support Bundle</a>
+            </div>
           </div>
         </section>
 
@@ -3992,10 +4159,16 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         if (lanStatusList) {{
           lanStatusList.innerHTML = devices.map(function(device) {{
             const configured = device.configured !== false;
-            const stateClass = configured ? (device.online ? "online" : "offline") : "offline";
-            const stateText = configured ? (device.online ? "Online" : "Offline") : "Not configured";
-            const latency = !configured ? "" : (device.online && device.latency_ms !== null ? Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply");
-            return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(device.name) + '</strong>' + (device.ip ? '<small>' + escapeHtml(device.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + stateText + '</strong><small>' + escapeHtml(latency) + '</small></div></div>';
+            const status = configured ? (device.status || (device.online ? "online" : "offline")) : "not_configured";
+            const stateClass = status === "reachable" ? "reachable" : ((status === "online" || status === "service_online") ? "online" : "offline");
+            const stateLabels = {{online:"Online", service_online:"Service Online", reachable:"Reachable", offline:"Offline", not_configured:"Not configured"}};
+            const services = Array.isArray(device.services) ? device.services : [];
+            const serviceText = services.map(function(service) {{
+              return String(service.label || "TCP") + ":" + String(service.port || "") + " " + (service.online ? "online" : "closed");
+            }}).join(" · ");
+            const icmpText = device.ping_online && device.latency_ms !== null ? "ICMP " + Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply";
+            const detail = configured ? [icmpText, serviceText].filter(Boolean).join(" · ") : "";
+            return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(device.name) + '</strong>' + (device.ip ? '<small>' + escapeHtml(device.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + escapeHtml(stateLabels[status] || "Unknown") + '</strong><small>' + escapeHtml(detail) + '</small></div></div>';
           }}).join("");
         }}
       }}
@@ -4689,6 +4862,7 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
     confirm = form.get("WEBUI_PASSWORD_CONFIRM", [""])[0]
+    current_password = form.get("WEBUI_CURRENT_PASSWORD", [""])[0]
     errors: List[str] = []
     networks = {}
     for key in ("LAN_CIDR", "WG_TUN_CIDR"):
@@ -4785,8 +4959,12 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
     if password or confirm:
         if password != confirm:
             errors.append("Web UI passwords do not match.")
-        elif len(password) < 12:
-            errors.append("New Web UI passwords must be at least 12 characters.")
+        elif len(password) < 10:
+            errors.append("New Web UI passwords must be at least 10 characters.")
+
+    if password or values["WEBUI_USER"] != current.get("WEBUI_USER", ""):
+        if not verify_credentials(current.get("WEBUI_USER", ""), current_password):
+            errors.append("The current Web UI password is required to change login credentials.")
 
     extra_rules, extra_errors = collect_extra_rules(form, values)
     errors.extend(extra_errors)
@@ -4812,6 +4990,42 @@ def _ping_target(ip: str) -> Tuple[bool, Optional[float]]:
     return False, None
 
 
+def _tcp_target(ip: str, port: int) -> bool:
+    try:
+        with socket.create_connection((ip, port), timeout=0.8):
+            return True
+    except (OSError, TimeoutError):
+        return False
+
+
+def _probe_device(name: str, ip: str, ports: List[Tuple[int, str]]) -> Dict[str, object]:
+    ping_online, latency = _ping_target(ip)
+    services = [
+        {"port": port, "label": label, "online": _tcp_target(ip, port)}
+        for port, label in ports
+    ]
+    service_online = any(bool(service["online"]) for service in services)
+    if ping_online:
+        status = "online"
+    elif service_online:
+        status = "service_online"
+    elif ping_online:
+        status = "reachable"
+    else:
+        status = "offline"
+    return {
+        "name": name,
+        "ip": ip,
+        "configured": True,
+        "online": ping_online or service_online,
+        "ping_online": ping_online,
+        "service_online": service_online,
+        "status": status,
+        "latency_ms": latency,
+        "services": services,
+    }
+
+
 def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
     if state is None:
         return {
@@ -4821,7 +5035,7 @@ def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
                 {"name":"Remote VPN Client","kind":"remote","ip":"","configured":False,"online":False,"handshake_age":None,"endpoint":"","rx_bytes":0,"tx_bytes":0},
             ],
             "devices": [
-                {"name":name,"ip":"","configured":False,"online":False,"latency_ms":None}
+                {"name":name,"ip":"","configured":False,"online":False,"ping_online":False,"service_online":False,"status":"not_configured","latency_ms":None,"services":[]}
                 for name in ("Router","StreamHub","HSG / HMG","Makito X4E","Windows Orchestrator","Proxmox")
             ],
         }
@@ -4882,36 +5096,39 @@ def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
             "tx_bytes": tx_bytes,
         })
 
-    device_specs = [
-        ("Router", state.get("ROUTER_LAN_IP", "")),
-        ("StreamHub", state.get("STREAMHUB_IP", "")),
-        ("HSG / HMG", state.get("HSG_IP", "")),
-        ("Makito X4E", state.get("MAKITO_ENC_IP", "")),
-        ("Windows Orchestrator", state.get("WINDOWS_ORCH_IP", "")),
-        ("Proxmox", state.get("PROXMOX_IP", "")),
+    device_specs: List[Tuple[str, str, List[Tuple[int, str]]]] = [
+        ("Router", state.get("ROUTER_LAN_IP", ""), [(8080, "Admin"), (8081, "LuCI")]),
+        ("StreamHub", state.get("STREAMHUB_IP", ""), [(443, "HTTPS"), (8444, "Alt HTTPS")]),
+        ("HSG / HMG", state.get("HSG_IP", ""), [(443, "HTTPS"), (22, "SSH")]),
+        ("Makito X4E", state.get("MAKITO_ENC_IP", ""), [(443, "HTTPS")]),
+        ("Windows Orchestrator", state.get("WINDOWS_ORCH_IP", ""), [(3389, "RDP")]),
+        ("Proxmox", state.get("PROXMOX_IP", ""), [(8006, "HTTPS")]),
     ]
     devices: List[Dict[str, object]] = []
-    valid_specs = [(name, ip) for name, ip in device_specs if ip]
-    results: Dict[str, Tuple[bool, Optional[float]]] = {}
+    valid_specs = [(name, ip, ports) for name, ip, ports in device_specs if ip]
     if valid_specs:
         with ThreadPoolExecutor(max_workers=min(6, len(valid_specs))) as pool:
-            futures = {pool.submit(_ping_target, ip): ip for _, ip in valid_specs}
-            for future, ip in [(future, ip) for future, ip in futures.items()]:
-                try: results[ip] = future.result(timeout=2.0)
-                except Exception: results[ip] = (False, None)
-    for name, ip in valid_specs:
-        online, latency = results.get(ip, (False, None))
-        devices.append({"name": name, "ip": ip, "configured": True, "online": online, "latency_ms": latency})
+            futures = [pool.submit(_probe_device, name, ip, ports) for name, ip, ports in valid_specs]
+            for index, future in enumerate(futures):
+                name, ip, ports = valid_specs[index]
+                try:
+                    devices.append(future.result(timeout=5.0))
+                except Exception:
+                    devices.append({
+                        "name": name, "ip": ip, "configured": True, "online": False,
+                        "ping_online": False, "service_online": False, "status": "offline",
+                        "latency_ms": None,
+                        "services": [{"port": port, "label": label, "online": False} for port, label in ports],
+                    })
 
     return {"timestamp": int(time.time() * 1000), "applied": True, "peers": peers, "devices": devices}
 
 
 REQUEST_LOCK = threading.Lock()
-LOGIN_FAILURES: Dict[str, List[float]] = {}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.3"
+    server_version = "HAIBOX-WebUI/6.4"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -4948,6 +5165,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(encoded)
+
+    def send_download(self, data: bytes, filename: str, content_type: str = "application/octet-stream") -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", f'attachment; filename="{filename}"')
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_redirect(
         self,
@@ -4988,18 +5215,34 @@ class Handler(BaseHTTPRequestHandler):
                 message = "Logged out."
             elif "reauth" in query:
                 message = "Session closed. Login required."
+            elif "password_changed" in query:
+                message = "Password changed. Sign in with the new password."
             else:
                 message = ""
             self.send_html(render_login_page(message))
+            return
+        if path == "/change-password":
+            if not session_id:
+                self.send_redirect("/login")
+            elif password_change_required():
+                self.send_html(render_change_password_page())
+            else:
+                self.send_redirect("/")
             return
         if path == "/":
             if not session_id:
                 self.send_redirect("/login")
                 return
+            if password_change_required():
+                self.send_redirect("/change-password")
+                return
             self.send_html(render_page(merged_state()))
             return
         if not session_id:
             self.send_redirect("/login")
+            return
+        if password_change_required():
+            self.send_redirect("/change-password")
             return
         if path == "/api/dashboard-status":
             self.send_json(dashboard_status(applied_state()))
@@ -5013,19 +5256,22 @@ class Handler(BaseHTTPRequestHandler):
             except (OSError, ValueError):
                 self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0})
             return
+        if path == "/download-support-bundle":
+            bundle = build_support_bundle()
+            stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+            self.send_download(
+                bundle,
+                f"haibox-support-v{SCRIPT_VERSION}-{stamp}.tar.gz",
+                "application/gzip",
+            )
+            return
         if path == "/download-router-config":
             conf_path = Path(ROUTER_CONF_OUT)
             if not conf_path.exists():
                 self.send_html(render_page(merged_state(), "Router config has not been generated yet.", "", "error"), 404)
                 return
             data = conf_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Disposition", 'attachment; filename="haibox_axt1800_wg.conf"')
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
+            self.send_download(data, "haibox_axt1800_wg.conf")
             return
         if path == "/download-remote-client":
             conf_path = Path(REMOTE_CLIENT_CONF_OUT)
@@ -5033,13 +5279,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_html(render_page(merged_state(), "Remote VPN client has not been created yet.", "", "error"), 404)
                 return
             data = conf_path.read_bytes()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/octet-stream")
-            self.send_header("Content-Disposition", 'attachment; filename="haibox_remote_client_wg.conf"')
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(data)
+            self.send_download(data, "haibox_remote_client_wg.conf")
             return
         if path != "/":
             self.send_html(render_page(merged_state(), "Page not found.", "", "error"), 404)
@@ -5074,26 +5314,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/login":
-            now = time.monotonic()
-            for address in list(LOGIN_FAILURES):
-                LOGIN_FAILURES[address] = [stamp for stamp in LOGIN_FAILURES[address] if now - stamp < 300]
-                if not LOGIN_FAILURES[address]:
-                    del LOGIN_FAILURES[address]
-            address = self.client_address[0]
-            if len(LOGIN_FAILURES.get(address, [])) >= 5:
-                self.send_error(429, "Too many login attempts. Retry in five minutes.")
-                return
             username = form.get("username", [""])[0].strip()
             password = form.get("password", [""])[0]
             if verify_credentials(username, password):
-                LOGIN_FAILURES.pop(address, None)
                 session_id = create_session(username)
                 self.send_html(
                     render_login_bootstrap(),
                     extra_headers=[("Set-Cookie", self.session_cookie(session_id))],
                 )
                 return
-            LOGIN_FAILURES.setdefault(address, []).append(now)
             self.send_html(render_login_page("Invalid username or password.", username), 401)
             return
 
@@ -5110,6 +5339,30 @@ class Handler(BaseHTTPRequestHandler):
                 "/login?reauth=1",
                 extra_headers=[("Set-Cookie", self.clear_session_cookie())],
             )
+            return
+
+        if path == "/change-password":
+            if not password_change_required():
+                self.send_redirect("/")
+                return
+            password = form.get("password", [""])[0]
+            confirm = form.get("confirm", [""])[0]
+            if password != confirm:
+                self.send_html(render_change_password_page("Passwords do not match.", "error"), 400)
+                return
+            if len(password) < 10:
+                self.send_html(render_change_password_page("Password must contain at least 10 characters.", "error"), 400)
+                return
+            write_auth(merged_state().get("WEBUI_USER", "admin"), password, False)
+            SESSIONS.clear()
+            self.send_redirect(
+                "/login?password_changed=1",
+                extra_headers=[("Set-Cookie", self.clear_session_cookie())],
+            )
+            return
+
+        if password_change_required():
+            self.send_redirect("/change-password")
             return
 
         if path == "/apply":
@@ -5253,7 +5506,9 @@ start_webui_service() {
 
 install_webui_stack() {
   install_self_copy
-  write_webui_auth
+  if [[ -n "${WEBUI_PASSWORD:-}" ]]; then
+    write_webui_auth
+  fi
   write_webui_cert
   write_webui_app
   write_webui_service
@@ -5657,7 +5912,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.3 - System Health"
+  echo " HAIBOX WireGuard v6.4 - System Health"
   echo "============================================================"
   echo
 
@@ -5996,7 +6251,7 @@ install_workflow() {
   load_webui_auth
   init_defaults
   show_eula_if_needed
-  prompt_webui_setup
+  automatic_webui_setup
   install_deps
   save_state
   prepare_host_firewall
@@ -6004,6 +6259,23 @@ install_workflow() {
   print_webui_access
   echo "Use the Web UI to fill the configuration and press Apply."
   echo
+}
+
+reset_webui_credentials() {
+  load_state
+  load_webui_auth
+  init_defaults
+  WEBUI_USER="admin"
+  WEBUI_PASSWORD="password"
+  WEBUI_FORCE_PASSWORD_CHANGE="Y"
+  WEBUI_PORT="${WEBUI_PORT:-65000}"
+  WEBUI_BIND="0.0.0.0"
+  WEBUI_ENABLED="Y"
+  write_webui_auth
+  save_state
+  systemctl restart "${WEBUI_SERVICE_NAME}" >/dev/null 2>&1 || true
+  ok "Web UI credentials reset to admin / password."
+  warn "A new password will be required at the next login."
 }
 
 run_noninteractive_command() {
@@ -6042,6 +6314,9 @@ run_noninteractive_command() {
       init_defaults
       print_webui_access
       ;;
+    --reset-webui-credentials)
+      reset_webui_credentials
+      ;;
     *)
       return 1
       ;;
@@ -6055,7 +6330,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.3 (VPS)"
+    echo "HAIBOX WireGuard v6.4 (VPS GOLDEN)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
@@ -6064,6 +6339,7 @@ menu() {
     echo "6) REMOVE ALL"
     echo "7) Show current config"
     echo "8) Show Web UI access"
+    echo "9) Reset Web UI credentials"
     echo "0) Exit"
     echo
     read -r -p "Select: " c
@@ -6076,6 +6352,7 @@ menu() {
       6) remove_all; pause ;;
       7) print_config; pause ;;
       8) print_webui_access; pause ;;
+      9) reset_webui_credentials; pause ;;
       0) exit 0 ;;
       *) warn "Invalid choice."; pause ;;
     esac
@@ -6092,5 +6369,3 @@ if [[ $# -gt 0 ]]; then
   exit 0
 fi
 menu
-
-

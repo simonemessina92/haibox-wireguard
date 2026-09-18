@@ -4,9 +4,40 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-Development target: v6.4.
+Next development target: to be defined.
 
-No changes have been approved yet.
+## [6.4] — 2026-09-18
+
+Promoted to Golden after physical regression testing on the Amsterdam HAIBOX test bench.
+
+### Added in v6.4-dev.3
+
+- Non-interactive Web UI setup on HTTPS TCP 65000 with initial credentials `admin` / `password` on fresh installations.
+- Mandatory password replacement before the dashboard can be accessed for the first time.
+- Web UI credential changes require the current password and accept new passwords of at least 10 characters.
+- CLI recovery action to reset credentials to `admin` / `password` and require another password replacement.
+- Existing credentials are preserved during upgrades.
+
+### Changed in v6.4-dev.3
+
+- Removed the temporary login-attempt lockout as requested; failed logins no longer block subsequent attempts.
+
+### Fixed in v6.4-dev.2
+
+- Stacked Connected Peers and LAN Devices cards vertically to prevent compressed and overlapping service details.
+- A device that answers ICMP is now reported as Online even when an optional monitored service is closed; the closed service remains visible in the detail line.
+
+### Added in v6.4-dev.1
+
+- Exact build identity in the Web UI: version, channel, installed-script SHA-256, VPS uptime, OS/kernel, last Apply time, and Web UI activation time.
+- Authenticated download of a sanitized support bundle containing diagnostics, HAIBOX-owned firewall chains, service states, logs, and dashboard status.
+- Service-aware LAN monitoring using ICMP plus selected TCP probes for Router, StreamHub, HSG/HMG, Makito X4E, Windows Orchestrator, and Proxmox.
+- Dashboard states: Online, Service Online, Reachable, Offline, and Not configured.
+
+### Safety
+
+- The support bundle excludes private WireGuard keys, Web UI credentials and password hashes, TLS private keys, cookies, sessions, and downloadable client configurations.
+- WireGuard, routing, NAT, DNAT, hairpin DNAT, persistence, and Remote VPN Client logic remain unchanged from v6.3.
 
 ## [6.3] — 2026-09-18
 
@@ -33,5 +64,6 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.3...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.4...develop
+[6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
 [6.3]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.3
