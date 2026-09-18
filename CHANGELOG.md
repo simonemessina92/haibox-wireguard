@@ -4,6 +4,12 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Fixed in v6.5-dev.3
+
+- Converted Web UI actions to POST/Redirect/GET so refreshing the result page cannot repeat Apply, restart WireGuard, or repeat other state-changing actions.
+- Apply, Test, System Health, and Remote Client results are carried through a one-time session message after the redirect.
+- Corrected Network Statistics RX/TX labels to use the HAIBOX device perspective rather than the VPS `wg0` interface perspective.
+
 ### Changed in v6.5-dev.2
 
 - Simplified Network Statistics after real-world UI testing.
