@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.5
+# Version 6.5-dev.6
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.5 improves session continuity, diagnostics and live network
+# Version 6.5-dev.6 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.5"
+SCRIPT_VERSION = "6.5-dev.6"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2765,7 +2765,6 @@ def public_service_links(state: Dict[str, str]) -> str:
     host = state.get("PUB_IP") or "SERVER_IP"
     services = [
         ("StreamHub", f"https://{host}:443"),
-        ("StreamHub Alt", f"https://{host}:8444"),
         ("Makito X4E", f"https://{host}:{FIXED_PORTS['MAKITO_GUI_PUB_PORT']}"),
         ("HSG / HMG", f"https://{host}:{FIXED_PORTS['HSG_GUI_PUB_PORT']}"),
         ("Proxmox", f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"),
@@ -2776,6 +2775,26 @@ def public_service_links(state: Dict[str, str]) -> str:
         f'<a class="service-link" href="{esc(url)}" target="_blank" rel="noopener">'
         f'<span>{esc(label)}</span><span class="external-icon" aria-hidden="true">↗</span></a>'
         for label, url in services
+    )
+
+
+def redirect_details(state: Dict[str, str]) -> str:
+    rows = [
+        ("StreamHub HTTPS", "TCP 443", state.get("STREAMHUB_IP", DEFAULTS["STREAMHUB_IP"]), "443"),
+        ("StreamHub Alt HTTPS", "TCP 8444", state.get("STREAMHUB_IP", DEFAULTS["STREAMHUB_IP"]), "8444"),
+        ("Makito HTTPS", f"TCP {FIXED_PORTS['MAKITO_GUI_PUB_PORT']}", state.get("MAKITO_ENC_IP", DEFAULTS["MAKITO_ENC_IP"]), "443"),
+        ("HSG HTTPS", f"TCP {FIXED_PORTS['HSG_GUI_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "443"),
+        ("HSG SSH", f"TCP {FIXED_PORTS['HSG_SSH_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "22"),
+        ("HSG RTMP", f"TCP {FIXED_PORTS['HSG_RTMP_PUB_PORT']}", state.get("HSG_IP", DEFAULTS["HSG_IP"]), "1935"),
+        ("Proxmox HTTPS", f"TCP {FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}", state.get("PROXMOX_IP", DEFAULTS["PROXMOX_IP"]), "8006"),
+        ("Router Admin", f"TCP {FIXED_PORTS['ROUTER_ADMIN_PUB_PORT']}", state.get("ROUTER_LAN_IP", DEFAULTS["ROUTER_LAN_IP"]), "8080"),
+        ("Router LuCI", f"TCP {FIXED_PORTS['ROUTER_LUCI_PUB_PORT']}", state.get("ROUTER_LAN_IP", DEFAULTS["ROUTER_LAN_IP"]), "8081"),
+    ]
+    return "".join(
+        '<div class="redirect-row">'
+        f'<strong>{esc(label)}</strong><span>{esc(public_port)}</span>'
+        f'<code>{esc(target_ip)}:{esc(target_port)}</code></div>'
+        for label, public_port, target_ip, target_port in rows
     )
 
 
@@ -3194,11 +3213,12 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     management_summary = management_rows(state)
     services_summary = public_service_rows(state)
     services_links = public_service_links(state)
+    redirects_html = redirect_details(state)
     udp_summary = udp_range_rows(state)
     extra_rules_html = extra_rule_form_rows(state)
     extra_rules_summary = extra_rules_summary_rows(state)
     build = build_information()
-    default_message = "Ready. Apply refreshes WireGuard, updates DNAT and persists the firewall."
+    status_html = f'<div class="{status_class} header-status">{esc(message)}</div>' if message else ""
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3799,19 +3819,21 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .profile-details[open] summary {{ color:#dff6ff; margin-bottom:12px; }}
     .profile-details pre {{ max-height:300px; font-size:12px; }}
     .compact-header {{
-      display: flex;
+      display: grid;
+      grid-template-columns: minmax(360px, 1fr) auto auto;
       align-items: center;
       gap: 22px;
-      min-height: 76px;
-      padding: 12px 18px;
+      min-height: 96px;
+      padding: 12px 18px 12px 24px;
       margin-bottom: 16px;
       border-radius: 16px;
     }}
-    .compact-brand {{ display:flex; align-items:center; min-width:280px; }}
-    .compact-brand img {{ display:block; width:280px; max-height:48px; object-fit:contain; object-position:left center; }}
-    .compact-header .primary-navigation {{ margin:0 0 0 auto; min-width:min(540px, 48vw); }}
+    .compact-brand {{ display:flex; align-items:center; min-width:360px; }}
+    .compact-brand img {{ display:block; width:360px; max-height:68px; object-fit:contain; object-position:left center; }}
+    .compact-header .primary-navigation {{ margin:0; min-width:min(540px, 44vw); }}
     .compact-header .logout-form {{ margin:0; }}
     .compact-header .logout-button {{ min-height:42px; padding:9px 15px; border-radius:9px; box-shadow:none; background:var(--panel-soft); border:1px solid var(--line); }}
+    .header-status {{ grid-column:2 / 4; margin:0; padding:8px 11px; font-size:12px; }}
     .primary-navigation {{ border-radius:12px; }}
     .primary-navigation .tab-button {{ border-radius:8px; min-height:42px; }}
     .layout.focus-mode {{ grid-template-columns: minmax(0, 1fr); }}
@@ -3820,7 +3842,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .control-panel > .panel-body {{ padding:16px; }}
     .control-heading {{ display:none; }}
     .status {{ margin-bottom:14px; padding:10px 13px; border-radius:9px; }}
-    .overview-summary {{ display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:9px; margin-bottom:12px; }}
+    .overview-summary {{ display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:9px; margin-bottom:12px; }}
     .overview-metric {{ min-height:66px; padding:11px 13px; border-radius:10px; border:1px solid var(--line); background:var(--panel-soft); }}
     .overview-metric span {{ display:block; margin-bottom:5px; color:var(--muted); font-size:10px; font-weight:800; text-transform:uppercase; }}
     .overview-metric strong {{ display:block; color:#fff; font-size:14px; overflow-wrap:anywhere; }}
@@ -3829,6 +3851,16 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .service-link {{ display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#e8f7ff; text-decoration:none; font-size:12px; font-weight:700; }}
     .service-link:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.10); }}
     .external-icon {{ color:var(--brand); font-size:14px; }}
+    .redirect-details {{ position:relative; }}
+    .redirect-details summary {{ display:inline-flex; align-items:center; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#cde8f5; cursor:pointer; font-size:12px; font-weight:700; list-style:none; }}
+    .redirect-details summary::-webkit-details-marker {{ display:none; }}
+    .redirect-details summary::after {{ content:"⌄"; margin-left:8px; color:var(--brand); }}
+    .redirect-details[open] summary::after {{ content:"⌃"; }}
+    .redirect-list {{ position:absolute; left:0; z-index:8; width:min(560px,86vw); margin-top:7px; padding:8px 12px; border:1px solid var(--line); border-radius:10px; background:#0b141e; box-shadow:var(--shadow); }}
+    .redirect-row {{ display:grid; grid-template-columns:minmax(140px,1fr) 90px minmax(150px,1fr); gap:12px; align-items:center; padding:8px 4px; border-top:1px solid var(--line); font-size:12px; }}
+    .redirect-row:first-child {{ border-top:0; }}
+    .redirect-row span {{ color:var(--muted); }}
+    .redirect-row code {{ color:#bfeaff; text-align:right; }}
     .overview-workspace {{ display:grid; grid-template-columns:minmax(330px,.78fr) minmax(520px,1.42fr); gap:12px; align-items:start; }}
     .overview-workspace .config-block {{ padding:14px; margin:0; border-radius:12px; }}
     .overview-workspace .dashboard-card {{ padding:12px; border-radius:10px; }}
@@ -3869,8 +3901,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       }}
       .dashboard-grid {{ grid-template-columns: 1fr; }}
       .network-stat-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
-      .compact-header {{ flex-wrap:wrap; }}
-      .compact-header .primary-navigation {{ order:3; width:100%; min-width:0; }}
+      .compact-header {{ grid-template-columns:1fr auto; }}
+      .compact-header .primary-navigation {{ grid-column:1 / -1; grid-row:2; width:100%; min-width:0; }}
+      .header-status {{ grid-column:1 / -1; grid-row:3; }}
       .overview-summary {{ grid-template-columns:repeat(3,minmax(0,1fr)); }}
       .overview-workspace {{ grid-template-columns:1fr; }}
     }}
@@ -3893,7 +3926,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       .compact-brand img {{ width:100%; }}
       .compact-header .primary-navigation {{ display:grid; grid-template-columns:1fr; }}
       .overview-summary {{ grid-template-columns:1fr 1fr; }}
-      .overview-metric:last-child {{ grid-column:1 / -1; }}
       .overview-workspace .traffic-row {{ grid-template-columns:minmax(110px,1fr) 78px 78px; gap:7px; }}
       .overview-footer {{ align-items:flex-start; flex-direction:column; }}
       .system-details-content {{ left:0; right:auto; width:min(440px,calc(100vw - 52px)); }}
@@ -3915,6 +3947,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       <form class="logout-form" method="post" action="/logout">
         <button class="logout-button" type="submit">Logout</button>
       </form>
+      {status_html}
     </header>
 
     <div class="layout focus-mode" id="main-layout">
@@ -3926,17 +3959,15 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <p class="panel-subtitle">Live status, traffic, configuration and VPN profiles.</p>
             </div>
           </div>
-          <div class="{status_class}">{esc(message or default_message)}</div>
           <form method="post" action="/apply">
             <div class="tab-page" data-tab-page="overview">
               <div class="overview-summary">
                 <div class="overview-metric"><span>Public IP</span><strong>{esc(host)}</strong></div>
-                <div class="overview-metric"><span>Web UI</span><strong>{esc(host)}:{esc(web_port)}</strong></div>
-                <div class="overview-metric"><span>WireGuard</span><strong>UDP {esc(state.get("WG_PORT", ""))}</strong></div>
+                <div class="overview-metric"><span>WireGuard Port</span><strong>UDP {esc(state.get("WG_PORT", ""))}</strong></div>
                 <div class="overview-metric"><span>Build</span><strong>v{esc(build["version"])} · {esc(build["channel"])}</strong></div>
                 <div class="overview-metric"><span>VPS Uptime</span><strong>{esc(build["uptime"])}</strong></div>
               </div>
-              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}</div>
+              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details></div>
               <div class="overview-workspace">
               <section class="config-block">
                 <div class="block-head">
@@ -4275,7 +4306,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           peerStatusList.innerHTML = peers.map(function(peer) {{
             const stateClass = peer.online ? "online" : "offline";
             const stateText = peer.online ? "Online" : (peer.configured ? "Offline" : "Not configured");
-            const detail = peer.configured ? handshakeText(peer.handshake_age) + " · RX " + formatBytes(peer.rx_bytes) + " · TX " + formatBytes(peer.tx_bytes) : "Peer not present on wg0";
+            const detail = peer.configured ? "Handshake " + handshakeText(peer.handshake_age) : "Peer not present on wg0";
             return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(peer.name) + '</strong>' + (peer.ip ? '<small>' + escapeHtml(peer.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + stateText + '</strong><small>' + escapeHtml(detail) + '</small></div></div>';
           }}).join("");
         }}
@@ -4285,12 +4316,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             const status = configured ? (device.status || (device.online ? "online" : "offline")) : "not_configured";
             const stateClass = status === "reachable" ? "reachable" : ((status === "online" || status === "service_online") ? "online" : "offline");
             const stateLabels = {{online:"Online", service_online:"Service Online", reachable:"Reachable", offline:"Offline", not_configured:"Not configured"}};
-            const services = Array.isArray(device.services) ? device.services : [];
-            const serviceText = services.map(function(service) {{
-              return String(service.label || "TCP") + ":" + String(service.port || "") + " " + (service.online ? "online" : "closed");
-            }}).join(" · ");
-            const icmpText = device.ping_online && device.latency_ms !== null ? "ICMP " + Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply";
-            const detail = configured ? [icmpText, serviceText].filter(Boolean).join(" · ") : "";
+            const detail = configured ? (device.ping_online && device.latency_ms !== null ? "RTT " + Number(device.latency_ms).toFixed(1) + " ms" : "No ICMP reply") : "";
             return '<div class="dashboard-row"><div class="dashboard-device"><span class="status-dot ' + stateClass + '"></span><div class="device-copy"><strong>' + escapeHtml(device.name) + '</strong>' + (device.ip ? '<small>' + escapeHtml(device.ip) + '</small>' : '') + '</div></div><div class="device-state"><strong>' + escapeHtml(stateLabels[status] || "Unknown") + '</strong><small>' + escapeHtml(detail) + '</small></div></div>';
           }}).join("");
         }}
@@ -5285,7 +5311,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.5"
+    server_version = "HAIBOX-WebUI/6.5-dev.6"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6123,7 +6149,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.5 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.6 - System Health"
   echo "============================================================"
   echo
 
@@ -6537,7 +6563,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.5 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.6 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
