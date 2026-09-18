@@ -6,6 +6,66 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 Next development target: to be defined.
 
+## [6.5] — 2026-09-18
+
+Promoted to Golden after live VPN, streaming, browser-refresh, Remote VPN Client and Web UI regression testing on the Amsterdam HAIBOX test bench.
+
+### Fixed in v6.5-dev.7
+
+- Action messages now use the otherwise empty header space between the HAIBOX logo and navigation without creating a second row or changing header height on desktop.
+- Action messages automatically fade out and are removed after 10 seconds.
+
+### Changed in v6.5-dev.6
+
+- Enlarged the HAIBOX logo while retaining the compact left-aligned header.
+- Action results now appear in the header only when an action has actually produced a message; the permanent Ready banner was removed.
+- Removed the redundant Web UI metric and renamed WireGuard to WireGuard Port.
+- Removed StreamHub Alt from the direct Public Services shortcuts.
+- Added an expandable Port Redirects summary for occasional inspection of HTTPS, SSH, RTMP, router, and Proxmox mappings.
+- Simplified peer rows to handshake age and LAN device rows to ICMP RTT only, removing verbose service-probe details from Overview.
+
+### Changed in v6.5-dev.5
+
+- Replaced the oversized hero area with a compact header using the HAIBOX logo, rectangular navigation, and a single Logout action.
+- Redesigned Overview as a full-width operational dashboard with compact connection/build summary, direct Public Services links, live device status, and Network Statistics visible together.
+- Removed duplicated Summary and Public Services panels from the sidebar.
+- Moved the support bundle into the expandable System Information area and reduced vertical scrolling on Full HD displays.
+- The Configuration sidebar remains available only where its build, UDP, rule, and output details are relevant.
+
+### Changed in v6.5-dev.4
+
+- Reorganized the Web UI into three clear areas: Overview, Configuration, and VPN Profiles.
+- Combined live HAIBOX status and Network Statistics in the default Overview page.
+- Grouped Core and Extra Port Forwarding settings inside Configuration; Apply, Test, and System Health actions now appear only there.
+- Replaced the large always-visible WireGuard configuration blocks with compact profile cards, copy/download actions, and expandable configuration text.
+
+### Fixed in v6.5-dev.3
+
+- Converted Web UI actions to POST/Redirect/GET so refreshing the result page cannot repeat Apply, restart WireGuard, or repeat other state-changing actions.
+- Apply, Test, System Health, and Remote Client results are carried through a one-time session message after the redirect.
+- Corrected Network Statistics RX/TX labels to use the HAIBOX device perspective rather than the VPS `wg0` interface perspective.
+
+### Changed in v6.5-dev.2
+
+- Simplified Network Statistics after real-world UI testing.
+- Reduced the summary to current RX and TX only.
+- The chart now contains only the two total RX/TX lines.
+- Replaced dynamic rankings, relative bars, peak cards, RTT ranking, and per-device chart lines with a fixed device table showing exact RX and TX rates.
+
+### Added in v6.5-dev.1
+
+- Per-device live traffic accounting for Router, StreamHub, HSG/HMG, Makito X4E, Windows Orchestrator, and Proxmox, plus an `Other / VPN` category.
+- Redesigned Network Statistics view with device lines, live consumer ranking, total RX/TX peaks, and RTT visibility.
+
+### Changed in v6.5-dev.1
+
+- Proxmox TCP 8006 is now always published; the optional exposure switch has been removed.
+- Configuration validation and Apply failures now present clearer, actionable error messages.
+
+### Fixed in v6.5-dev.1
+
+- Browser refresh no longer destroys the authenticated Web UI session. Logout remains explicit and sessions still expire server-side.
+
 ## [6.4] — 2026-09-18
 
 Promoted to Golden after physical regression testing on the Amsterdam HAIBOX test bench.
@@ -64,6 +124,7 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.4...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.5...develop
+[6.5]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5
 [6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
 [6.3]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.3
