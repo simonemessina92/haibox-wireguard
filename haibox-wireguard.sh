@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.2
+# Version 6.5-dev.3
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.2 improves session continuity, diagnostics and live network
+# Version 6.5-dev.3 improves session continuity, diagnostics and live network
 # visibility while keeping the v6.4 Golden architecture unchanged.
 # ==============================================================================
 
@@ -542,7 +542,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.2"
+SCRIPT_VERSION = "6.5-dev.3"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2473,6 +2473,31 @@ def create_session(user: str) -> str:
     return session_id
 
 
+def set_session_flash(
+    session_id: str,
+    message: str,
+    output: str = "",
+    level: str = "info",
+    state: Optional[Dict[str, str]] = None,
+) -> None:
+    payload = SESSIONS.get(session_id)
+    if payload is not None:
+        payload["flash"] = {
+            "message": message,
+            "output": output,
+            "level": level,
+            "state": state,
+        }
+
+
+def pop_session_flash(session_id: str) -> Dict[str, object]:
+    payload = SESSIONS.get(session_id)
+    if payload is None:
+        return {}
+    flash = payload.pop("flash", {})
+    return flash if isinstance(flash, dict) else {}
+
+
 def get_session_id_from_cookie(cookie_header: Optional[str]) -> Optional[str]:
     if not cookie_header:
         return None
@@ -4262,15 +4287,18 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           if (previousNetworkSample) {{
             const elapsed = (sample.timestamp - previousNetworkSample.timestamp) / 1000;
             if (elapsed > 0) {{
-              const rx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
-              const tx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
+              // Present traffic from the HAIBOX/device point of view. Bytes sent
+              // by the VPS into wg0 are received by HAIBOX; bytes received by
+              // the VPS from wg0 were transmitted by HAIBOX.
+              const rx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
+              const tx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
               const deviceRates = {{}};
               Object.keys(deviceMeta).filter(function(key) {{ return key !== "other"; }}).forEach(function(key) {{
                 const current = (sample.devices || {{}})[key] || {{}};
                 const previous = (previousNetworkSample.devices || {{}})[key] || {{}};
                 deviceRates[key] = {{
-                  rx: Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) * 8 / elapsed / 1000000,
-                  tx: Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0)) * 8 / elapsed / 1000000
+                  rx: Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0)) * 8 / elapsed / 1000000,
+                  tx: Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) * 8 / elapsed / 1000000
                 }};
               }});
               const classifiedRx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.rx; }}, 0);
@@ -5134,7 +5162,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.2"
+    server_version = "HAIBOX-WebUI/6.5-dev.3"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5223,6 +5251,8 @@ class Handler(BaseHTTPRequestHandler):
                 message = "Session closed. Login required."
             elif "password_changed" in query:
                 message = "Password changed. Sign in with the new password."
+            elif "credentials_changed" in query:
+                message = "Login credentials updated. Sign in again."
             else:
                 message = ""
             self.send_html(render_login_page(message))
@@ -5242,7 +5272,15 @@ class Handler(BaseHTTPRequestHandler):
             if password_change_required():
                 self.send_redirect("/change-password")
                 return
-            self.send_html(render_page(merged_state()))
+            flash = pop_session_flash(session_id)
+            flash_state = flash.get("state")
+            page_state = flash_state if isinstance(flash_state, dict) else merged_state()
+            self.send_html(render_page(
+                page_state,
+                str(flash.get("message", "")),
+                str(flash.get("output", "")),
+                str(flash.get("level", "info")),
+            ))
             return
         if not session_id:
             self.send_redirect("/login")
@@ -5346,7 +5384,8 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
 
-        if not self.current_session_id():
+        session_id = self.current_session_id()
+        if not session_id:
             self.send_redirect(
                 "/login?reauth=1",
                 extra_headers=[("Set-Cookie", self.clear_session_cookie())],
@@ -5384,17 +5423,20 @@ class Handler(BaseHTTPRequestHandler):
                 message = "Configuration not applied. Fix the following fields:\n" + "\n".join(
                     "%d. %s" % (index, error) for index, error in enumerate(errors, 1)
                 )
-                self.send_html(render_page(values, message, "", "error"), 400)
+                set_session_flash(session_id, message, "", "error", values)
+                self.send_redirect("/")
                 return
 
             try:
                 write_state(values)
             except Exception as exc:
-                self.send_html(render_page(values, "Failed to write configuration: %s" % exc, "", "error"), 500)
+                set_session_flash(session_id, "Failed to write configuration: %s" % exc, "", "error", values)
+                self.send_redirect("/")
                 return
 
             rc, output = run_script("--web-apply")
-            if rc == 0 and (password or values["WEBUI_USER"] != current.get("WEBUI_USER", "")):
+            credentials_changed = bool(password or values["WEBUI_USER"] != current.get("WEBUI_USER", ""))
+            if rc == 0 and credentials_changed:
                 write_auth(values["WEBUI_USER"], password or None)
                 SESSIONS.clear()
             if rc != 0:
@@ -5412,14 +5454,22 @@ class Handler(BaseHTTPRequestHandler):
             if rc != 0:
                 detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "No diagnostic detail was returned.")
                 message = "Apply failed and the previous configuration was restored.\nReason: " + detail
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+            if rc == 0 and credentials_changed:
+                self.send_redirect(
+                    "/login?credentials_changed=1",
+                    extra_headers=[("Set-Cookie", self.clear_session_cookie())],
+                )
+                return
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/test":
             rc, output = run_script("--web-test")
             message = "Test completed." if rc == 0 else "Test returned errors."
             level = "ok" if rc == 0 else "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/health":
@@ -5433,17 +5483,20 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 message = "System Health: ERROR."
                 level = "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
         if path == "/create-remote-client":
             rc, output = run_script("--create-remote-client")
             message = "Remote VPN client created. Download the .conf and import it in WireGuard." if rc == 0 else "Remote VPN client creation failed."
             level = "ok" if rc == 0 else "error"
-            self.send_html(render_page(merged_state(), message, output, level), 200 if rc == 0 else 500)
+            set_session_flash(session_id, message, output, level)
+            self.send_redirect("/")
             return
 
-        self.send_html(render_page(merged_state(), "Unsupported action.", "", "error"), 404)
+        set_session_flash(session_id, "Unsupported action.", "", "error")
+        self.send_redirect("/")
 
 
 class ThreadingTLSServer(ThreadingHTTPServer):
@@ -5947,7 +6000,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.2 - System Health"
+  echo " HAIBOX WireGuard v6.5-dev.3 - System Health"
   echo "============================================================"
   echo
 
@@ -6361,7 +6414,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.2 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5-dev.3 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
