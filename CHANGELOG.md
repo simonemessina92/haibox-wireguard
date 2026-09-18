@@ -6,7 +6,19 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 Development target: v6.4.
 
-Current test build: v6.4-dev.2.
+Current test build: v6.4-dev.3.
+
+### Added in v6.4-dev.3
+
+- Non-interactive Web UI setup on HTTPS TCP 65000 with initial credentials `admin` / `password` on fresh installations.
+- Mandatory password replacement before the dashboard can be accessed for the first time.
+- Web UI credential changes require the current password and accept new passwords of at least 10 characters.
+- CLI recovery action to reset credentials to `admin` / `password` and require another password replacement.
+- Existing credentials are preserved during upgrades.
+
+### Changed in v6.4-dev.3
+
+- Removed the temporary login-attempt lockout as requested; failed logins no longer block subsequent attempts.
 
 ### Fixed in v6.4-dev.2
 

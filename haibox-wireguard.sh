@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.4-dev.2
+# Version 6.4-dev.3
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,8 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.4-dev.2 adds build identity, a sanitized support bundle and
-# service-aware LAN monitoring while preserving the tested V6.3 networking.
+# Version 6.4-dev.3 adds automatic Web UI credentials, mandatory first-login
+# password replacement and CLI credential recovery while preserving networking.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -400,55 +400,20 @@ prompt_config() {
   ok "Saved ${STATE_FILE}"
 }
 
-prompt_webui_setup() {
-  local v p1 p2
-
-  echo
-  echo "Web UI setup."
-
-  while true; do
-    read -r -p "Web UI username [${WEBUI_USER}]: " v
-    [[ -z "${v}" ]] && v="${WEBUI_USER}"
-    if valid_webui_user "${v}"; then
-      WEBUI_USER="${v}"
-      break
-    fi
-    warn "Use only letters, numbers, dot, underscore or dash."
-  done
-
-  while true; do
-    read -r -s -p "Web UI password: " p1
-    echo
-    read -r -s -p "Confirm Web UI password: " p2
-    echo
-    if [[ -z "${p1}" ]]; then
-      warn "Password cannot be empty."
-      continue
-    fi
-    if [[ "${p1}" != "${p2}" ]]; then
-      warn "Passwords do not match."
-      continue
-    fi
-    if (( ${#p1} < 12 )); then
-      warn "New passwords must be at least 12 characters."
-      continue
-    fi
-    WEBUI_PASSWORD="${p1}"
-    break
-  done
-
-  while true; do
-    read -r -p "Web UI TCP port [${WEBUI_PORT}]: " v
-    [[ -z "${v}" ]] && v="${WEBUI_PORT}"
-    if valid_tcp_port "${v}"; then
-      WEBUI_PORT="${v}"
-      break
-    fi
-    warn "Choose a TCP port between 1024 and 65535."
-  done
-
+automatic_webui_setup() {
+  WEBUI_USER="${WEBUI_USER:-admin}"
+  WEBUI_PORT="${WEBUI_PORT:-65000}"
   WEBUI_BIND="0.0.0.0"
   WEBUI_ENABLED="Y"
+  if [[ ! -s "${WEBUI_AUTH_FILE}" ]]; then
+    WEBUI_USER="admin"
+    WEBUI_PASSWORD="password"
+    WEBUI_FORCE_PASSWORD_CHANGE="Y"
+    ok "Initial Web UI credentials configured: admin / password"
+    warn "A new password will be required at the first login."
+  else
+    ok "Existing Web UI credentials preserved."
+  fi
 }
 
 install_deps() {
@@ -475,7 +440,7 @@ install_self_copy() {
 
 write_webui_auth() {
   [[ -n "${WEBUI_PASSWORD:-}" ]] || { err "Web UI password is empty."; exit 1; }
-  python3 - "${WEBUI_USER}" "${WEBUI_AUTH_FILE}" 3<<< "${WEBUI_PASSWORD}" <<'PY'
+  python3 - "${WEBUI_USER}" "${WEBUI_AUTH_FILE}" "${WEBUI_FORCE_PASSWORD_CHANGE:-N}" 3<<< "${WEBUI_PASSWORD}" <<'PY'
 import hashlib
 import os
 import secrets
@@ -486,6 +451,7 @@ user = sys.argv[1]
 with os.fdopen(3, "r", encoding="utf-8") as password_input:
     password = password_input.read()[:-1]
 out_path = sys.argv[2]
+force_password_change = sys.argv[3]
 salt = secrets.token_hex(16)
 iterations = 200000
 digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), iterations).hex()
@@ -498,6 +464,7 @@ content = "\n".join([
     f'WEBUI_PASS_SALT="{salt}"',
     f'WEBUI_PASS_ITERATIONS="{iterations}"',
     f'WEBUI_PASS_HASH="{digest}"',
+    f'WEBUI_FORCE_PASSWORD_CHANGE="{force_password_change}"',
 ]) + "\n"
 
 with open(out_path, "w", encoding="utf-8") as handle:
@@ -583,7 +550,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.4-dev.2"
+SCRIPT_VERSION = "6.4-dev.3"
 RELEASE_CHANNEL = "DEVELOPMENT"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2444,7 +2411,11 @@ def applied_state() -> Optional[Dict[str, str]]:
     return state
 
 
-def write_auth(user: str, password: Optional[str] = None) -> None:
+def password_change_required() -> bool:
+    return load_shell_kv(AUTH_FILE).get("WEBUI_FORCE_PASSWORD_CHANGE", "N").upper() == "Y"
+
+
+def write_auth(user: str, password: Optional[str] = None, force_password_change: Optional[bool] = None) -> None:
     auth = load_shell_kv(AUTH_FILE)
     if password:
         salt = secrets.token_hex(16)
@@ -2462,11 +2433,14 @@ def write_auth(user: str, password: Optional[str] = None) -> None:
         if not salt or not digest:
             raise ValueError("Missing stored password hash. Set a new password.")
 
+    if force_password_change is None:
+        force_password_change = auth.get("WEBUI_FORCE_PASSWORD_CHANGE", "N").upper() == "Y"
     content = "\n".join([
         f'WEBUI_USER="{shell_escape(user)}"',
         f'WEBUI_PASS_SALT="{salt}"',
         f'WEBUI_PASS_ITERATIONS="{iterations}"',
         f'WEBUI_PASS_HASH="{digest}"',
+        f'WEBUI_FORCE_PASSWORD_CHANGE="{"Y" if force_password_change else "N"}"',
     ]) + "\n"
     atomic_write(AUTH_FILE, content)
 
@@ -3003,11 +2977,43 @@ def render_login_bootstrap() -> str:
     try {{
       window.sessionStorage.setItem("{SESSION_STORAGE_KEY}", "1");
     }} catch (err) {{}}
-    window.location.replace("/");
+    window.location.replace("/change-password");
   </script>
 </body>
 </html>
 """
+
+
+def render_change_password_page(message: str = "", level: str = "info") -> str:
+    status_html = f'<div class="login-status">{esc(message)}</div>' if message else ""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Set HAIBOX Password</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; font-family:Aptos,"Segoe UI",sans-serif; color:#f5fbff; background:linear-gradient(180deg,#04070c,#08111a 55%,#060b12); }}
+    .panel {{ width:min(440px,100%); padding:28px; background:rgba(12,18,27,.96); border:1px solid rgba(150,176,194,.14); border-radius:24px; box-shadow:0 22px 48px rgba(0,0,0,.34); }}
+    h1 {{ margin:0; font-size:25px; }} p {{ color:#90a9ba; line-height:1.5; }}
+    form,label {{ display:grid; gap:10px; }} form {{ margin-top:20px; gap:15px; }} label {{ color:#90a9ba; font-size:12px; font-weight:700; text-transform:uppercase; }}
+    input {{ width:100%; padding:13px 14px; border:1px solid rgba(146,172,190,.18); border-radius:14px; background:#0b121a; color:#f5fbff; outline:none; }}
+    input:focus {{ border-color:#00a3e0; box-shadow:0 0 0 4px rgba(0,163,224,.18); }}
+    button {{ border:0; border-radius:999px; padding:12px 18px; font:inherit; font-weight:700; cursor:pointer; color:white; background:linear-gradient(135deg,#00a3e0,#008bc5); }}
+    .login-status {{ margin-top:16px; padding:12px 14px; border-radius:14px; background:rgba(0,163,224,.12); color:#a8e9ff; font-size:14px; }}
+  </style>
+</head>
+<body><section class="panel">
+  <h1>Choose a new password</h1>
+  <p>The initial password must be replaced before the control panel can be used. Use at least 10 characters.</p>
+  {status_html}
+  <form method="post" action="/change-password" autocomplete="off">
+    <label>New password<input type="password" name="password" autocomplete="new-password" minlength="10" required></label>
+    <label>Confirm password<input type="password" name="confirm" autocomplete="new-password" minlength="10" required></label>
+    <button type="submit">Save New Password</button>
+  </form>
+</section></body></html>"""
 
 
 def render_logout_bootstrap() -> str:
@@ -3902,6 +3908,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <div class="grid">
                 {input_row("Web UI username", "WEBUI_USER", state.get("WEBUI_USER", ""))}
                 {input_row("Web UI TCP port", "WEBUI_PORT", state.get("WEBUI_PORT", ""))}
+                {input_row("Current Web UI password", "WEBUI_CURRENT_PASSWORD", "", "password")}
                 {input_row("New Web UI password", "WEBUI_PASSWORD", "", "password")}
                 {input_row("Confirm new password", "WEBUI_PASSWORD_CONFIRM", "", "password")}
               </div>
@@ -3952,7 +3959,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
-            <div class="footer-note">Leave the password fields empty to keep the current password.</div>
+            <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
           </form>
         </div>
       </section>
@@ -4855,6 +4862,7 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
     confirm = form.get("WEBUI_PASSWORD_CONFIRM", [""])[0]
+    current_password = form.get("WEBUI_CURRENT_PASSWORD", [""])[0]
     errors: List[str] = []
     networks = {}
     for key in ("LAN_CIDR", "WG_TUN_CIDR"):
@@ -4951,8 +4959,12 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
     if password or confirm:
         if password != confirm:
             errors.append("Web UI passwords do not match.")
-        elif len(password) < 12:
-            errors.append("New Web UI passwords must be at least 12 characters.")
+        elif len(password) < 10:
+            errors.append("New Web UI passwords must be at least 10 characters.")
+
+    if password or values["WEBUI_USER"] != current.get("WEBUI_USER", ""):
+        if not verify_credentials(current.get("WEBUI_USER", ""), current_password):
+            errors.append("The current Web UI password is required to change login credentials.")
 
     extra_rules, extra_errors = collect_extra_rules(form, values)
     errors.extend(extra_errors)
@@ -5113,11 +5125,10 @@ def dashboard_status(state: Optional[Dict[str, str]]) -> Dict[str, object]:
 
 
 REQUEST_LOCK = threading.Lock()
-LOGIN_FAILURES: Dict[str, List[float]] = {}
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.4-dev.2"
+    server_version = "HAIBOX-WebUI/6.4-dev.3"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5204,18 +5215,34 @@ class Handler(BaseHTTPRequestHandler):
                 message = "Logged out."
             elif "reauth" in query:
                 message = "Session closed. Login required."
+            elif "password_changed" in query:
+                message = "Password changed. Sign in with the new password."
             else:
                 message = ""
             self.send_html(render_login_page(message))
+            return
+        if path == "/change-password":
+            if not session_id:
+                self.send_redirect("/login")
+            elif password_change_required():
+                self.send_html(render_change_password_page())
+            else:
+                self.send_redirect("/")
             return
         if path == "/":
             if not session_id:
                 self.send_redirect("/login")
                 return
+            if password_change_required():
+                self.send_redirect("/change-password")
+                return
             self.send_html(render_page(merged_state()))
             return
         if not session_id:
             self.send_redirect("/login")
+            return
+        if password_change_required():
+            self.send_redirect("/change-password")
             return
         if path == "/api/dashboard-status":
             self.send_json(dashboard_status(applied_state()))
@@ -5287,26 +5314,15 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/login":
-            now = time.monotonic()
-            for address in list(LOGIN_FAILURES):
-                LOGIN_FAILURES[address] = [stamp for stamp in LOGIN_FAILURES[address] if now - stamp < 300]
-                if not LOGIN_FAILURES[address]:
-                    del LOGIN_FAILURES[address]
-            address = self.client_address[0]
-            if len(LOGIN_FAILURES.get(address, [])) >= 5:
-                self.send_error(429, "Too many login attempts. Retry in five minutes.")
-                return
             username = form.get("username", [""])[0].strip()
             password = form.get("password", [""])[0]
             if verify_credentials(username, password):
-                LOGIN_FAILURES.pop(address, None)
                 session_id = create_session(username)
                 self.send_html(
                     render_login_bootstrap(),
                     extra_headers=[("Set-Cookie", self.session_cookie(session_id))],
                 )
                 return
-            LOGIN_FAILURES.setdefault(address, []).append(now)
             self.send_html(render_login_page("Invalid username or password.", username), 401)
             return
 
@@ -5323,6 +5339,30 @@ class Handler(BaseHTTPRequestHandler):
                 "/login?reauth=1",
                 extra_headers=[("Set-Cookie", self.clear_session_cookie())],
             )
+            return
+
+        if path == "/change-password":
+            if not password_change_required():
+                self.send_redirect("/")
+                return
+            password = form.get("password", [""])[0]
+            confirm = form.get("confirm", [""])[0]
+            if password != confirm:
+                self.send_html(render_change_password_page("Passwords do not match.", "error"), 400)
+                return
+            if len(password) < 10:
+                self.send_html(render_change_password_page("Password must contain at least 10 characters.", "error"), 400)
+                return
+            write_auth(merged_state().get("WEBUI_USER", "admin"), password, False)
+            SESSIONS.clear()
+            self.send_redirect(
+                "/login?password_changed=1",
+                extra_headers=[("Set-Cookie", self.clear_session_cookie())],
+            )
+            return
+
+        if password_change_required():
+            self.send_redirect("/change-password")
             return
 
         if path == "/apply":
@@ -5466,7 +5506,9 @@ start_webui_service() {
 
 install_webui_stack() {
   install_self_copy
-  write_webui_auth
+  if [[ -n "${WEBUI_PASSWORD:-}" ]]; then
+    write_webui_auth
+  fi
   write_webui_cert
   write_webui_app
   write_webui_service
@@ -5870,7 +5912,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.4-dev.2 - System Health"
+  echo " HAIBOX WireGuard v6.4-dev.3 - System Health"
   echo "============================================================"
   echo
 
@@ -6209,7 +6251,7 @@ install_workflow() {
   load_webui_auth
   init_defaults
   show_eula_if_needed
-  prompt_webui_setup
+  automatic_webui_setup
   install_deps
   save_state
   prepare_host_firewall
@@ -6217,6 +6259,23 @@ install_workflow() {
   print_webui_access
   echo "Use the Web UI to fill the configuration and press Apply."
   echo
+}
+
+reset_webui_credentials() {
+  load_state
+  load_webui_auth
+  init_defaults
+  WEBUI_USER="admin"
+  WEBUI_PASSWORD="password"
+  WEBUI_FORCE_PASSWORD_CHANGE="Y"
+  WEBUI_PORT="${WEBUI_PORT:-65000}"
+  WEBUI_BIND="0.0.0.0"
+  WEBUI_ENABLED="Y"
+  write_webui_auth
+  save_state
+  systemctl restart "${WEBUI_SERVICE_NAME}" >/dev/null 2>&1 || true
+  ok "Web UI credentials reset to admin / password."
+  warn "A new password will be required at the next login."
 }
 
 run_noninteractive_command() {
@@ -6255,6 +6314,9 @@ run_noninteractive_command() {
       init_defaults
       print_webui_access
       ;;
+    --reset-webui-credentials)
+      reset_webui_credentials
+      ;;
     *)
       return 1
       ;;
@@ -6268,7 +6330,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.4-dev.2 (VPS DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.4-dev.3 (VPS DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
@@ -6277,6 +6339,7 @@ menu() {
     echo "6) REMOVE ALL"
     echo "7) Show current config"
     echo "8) Show Web UI access"
+    echo "9) Reset Web UI credentials"
     echo "0) Exit"
     echo
     read -r -p "Select: " c
@@ -6289,6 +6352,7 @@ menu() {
       6) remove_all; pause ;;
       7) print_config; pause ;;
       8) print_webui_access; pause ;;
+      9) reset_webui_credentials; pause ;;
       0) exit 0 ;;
       *) warn "Invalid choice."; pause ;;
     esac
