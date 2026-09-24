@@ -4,7 +4,7 @@
 
 This document is the engineering baseline for HAIBOX WireGuard development.
 
-- **Current Golden source:** `haibox-wireguard_v6.4.sh`
+- **Current Golden source:** `haibox-wireguard_v6.5.sh`
 - **Golden status:** tested on the real HAIBOX environment and working
 - **Development rule:** released Golden assets are immutable. Every new development cycle starts from the current Golden.
 - **Conflict rule:** if previous chats, notes, memories, or older scripts disagree with the Golden file, the Golden file wins.
@@ -12,8 +12,8 @@ This document is the engineering baseline for HAIBOX WireGuard development.
 
 The current Golden release has:
 
-- Version header: `6.4`
-- SHA-256: `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a`
+- Version header: `6.5`
+- SHA-256: `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a`
 
 The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.3.
 
@@ -38,7 +38,7 @@ The script owns the HAIBOX-specific WireGuard, routing, NAT, forwarding, persist
 |---|---:|---|
 | HAIBOX LAN | `192.168.10.0/24` | Remote LAN routed through the HAIBOX router |
 | HAIBOX router LAN | `192.168.10.1` | LAN gateway/device management |
-| Proxmox | `192.168.10.250` | Optional public GUI mapping |
+| Proxmox | `192.168.10.250` | Public GUI mapping on TCP 8006 |
 | StreamHub | `192.168.10.101` | Main broadcast service target |
 | HSG/HMG | `192.168.10.102` | Gateway/manager target |
 | Makito X4E | `192.168.10.103` | Encoder target |
@@ -104,7 +104,7 @@ Every standard DNAT mapping must exist twice:
 |---|---|---|
 | Router admin | TCP `8080` | Router `:8080` |
 | Router LuCI | TCP `8081` | Router `:8081` |
-| Proxmox GUI | TCP `8006` | Proxmox `:8006` when explicitly enabled |
+| Proxmox GUI | TCP `8006` | Proxmox `:8006`, always published |
 | Makito GUI | TCP `10443` | Makito `:443` |
 | Makito encoder | UDP `30000-30004` | Same ports on Makito |
 | HSG/HMG GUI | TCP `10444` | HSG/HMG `:443` |
@@ -147,6 +147,10 @@ The Web UI is part of the current Golden, not an experimental add-on.
 - Test and System Health actions
 - Router and remote-client `.conf` downloads when available
 - Live dashboard and network statistics endpoints
+- Compact Overview, Configuration and VPN Profiles workspaces
+- Per-device RX/TX traffic accounting from the HAIBOX perspective
+- POST/Redirect/GET prevents browser refresh from replaying state-changing actions
+- Transient action messages dismiss automatically after 10 seconds
 
 The live dashboard polls only while its tab is active and the page is visible. It reports:
 
@@ -218,7 +222,7 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 
 Unknown flags must fail rather than being silently ignored.
 
-## 12. Change-control rules for v6.4+
+## 12. Change-control rules for v6.5+
 
 1. Never edit or overwrite a published Golden release asset.
 2. Start from the current Golden, update the version consistently, and work only on `develop`.
@@ -232,6 +236,8 @@ Unknown flags must fail rather than being silently ignored.
 10. Any change to routing, NAT, DNAT, SNAT, WireGuard `AllowedIPs`, or rollback behavior requires the full real-environment regression suite.
 11. A successful syntax check or installation is not sufficient to declare a new Golden.
 12. Record each approved release checksum and the physical regression-test result in this document or its successor.
+13. After a Golden is approved and published on `main`, merge that exact `main` state into `develop` before starting another development cycle. Resolve older development changes in favor of the approved Golden; keep the branch history. Verify that the resulting `develop` tree matches `main` before making new changes.
+14. Start the next development build from the synchronized Golden source. Give it a `-dev.1` version only when implementing the first new change; do not label the unmodified Golden as a development build.
 
 ## 13. Mandatory regression checklist
 
@@ -268,7 +274,7 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] A valid single-port extra rule applies correctly.
 - [ ] A valid range rule with identical public/target range applies correctly.
 - [ ] A valid translated range applies correctly.
-- [ ] Proxmox exposure defaults to disabled and works only when enabled.
+- [ ] Proxmox TCP `8006` is always included in the standard public mappings.
 - [ ] Windows Orchestrator has no default public DNAT.
 
 ### D. WireGuard core
@@ -303,7 +309,7 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] StreamHub HTTPS `443` and alternate web `8444` work.
 - [ ] StreamHub TCP `7900-7940` and all listed service/FTP mappings are present and application-tested where equipment permits.
 - [ ] StreamHub UDP `7900-7940` and all listed UDP ranges are present and application-tested where equipment permits.
-- [ ] Enabled Proxmox TCP `8006` reaches internal `8006`; disabled mode removes the mapping.
+- [ ] Proxmox TCP `8006` reaches internal `8006` through both public and hairpin mappings.
 - [ ] At least one configured extra TCP rule and one configured extra UDP rule are tested end to end.
 
 ### G. Hairpin behavior

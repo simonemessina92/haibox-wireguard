@@ -4,6 +4,12 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+Next development target: to be defined.
+
+## [6.5] — 2026-09-18
+
+Promoted to Golden after live VPN, streaming, browser-refresh, Remote VPN Client and Web UI regression testing on the Amsterdam HAIBOX test bench.
+
 ### Fixed in v6.5-dev.7
 
 - Action messages now use the otherwise empty header space between the HAIBOX logo and navigation without creating a second row or changing header height on desktop.
@@ -118,6 +124,7 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.4...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.5...develop
+[6.5]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5
 [6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
 [6.3]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.3

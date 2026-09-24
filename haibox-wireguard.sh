@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5-dev.7
+# Version 6.5
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -23,15 +23,15 @@ set -euo pipefail
 #   - StreamHub service ports and UDP 7900-7940.
 #   - Makito X4E HTTPS GUI and UDP 30000-30004.
 #   - HSG/HMG HTTPS GUI, SSH, RTMP and SRT UDP 9000-9100.
-#   - Optional Proxmox HTTPS GUI.
+#   - Proxmox HTTPS GUI, always published on TCP 8006.
 #
 # Network values and service addresses can be changed during setup.
 #
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5-dev.7 improves session continuity, diagnostics and live network
-# visibility while keeping the v6.4 Golden architecture unchanged.
+# Version 6.5 Golden adds a compact operational dashboard, safe browser refresh,
+# per-device traffic visibility and clearer configuration workflows.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -542,8 +542,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5-dev.7"
-RELEASE_CHANNEL = "DEVELOPMENT"
+SCRIPT_VERSION = "6.5"
+RELEASE_CHANNEL = "GOLDEN"
 LOGO_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAFhYAAAe7CAYAAADi0l4NAAAACXBIWXMAAC4jAAAuIwF4pT92AAAgAElEQVR4nOzdy0HjyhaG0f/E"
@@ -5321,7 +5321,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5-dev.7"
+    server_version = "HAIBOX-WebUI/6.5"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6159,7 +6159,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5-dev.7 - System Health"
+  echo " HAIBOX WireGuard v6.5 - System Health"
   echo "============================================================"
   echo
 
@@ -6573,7 +6573,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5-dev.7 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.5 (GOLDEN)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
