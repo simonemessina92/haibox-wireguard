@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Improved in v6.6-dev.5
+
+- Configuration → Domain now uses the standard dark input style and shows Add only before a domain is saved, then Remove only while one is active. The domain indicator has been removed from Overview; the Public Services links still use the selected domain.
+
 ### Added in v6.6-dev.4
 
 - Optional hostname in Configuration → Public Links. Add uses it in Public Services links and service URLs; Remove restores the VPS public IP. Saved independently of Apply, without changing DNS, VPN endpoints or forwarding rules.

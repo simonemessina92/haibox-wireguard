@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.4
+# Version 6.6-dev.5
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.4 adds an optional hostname for Web UI service links.
+# Version 6.6-dev.5 refines the optional domain configuration and its controls.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -544,7 +544,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.4"
+SCRIPT_VERSION = "6.6-dev.5"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -4021,7 +4021,6 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .overview-metric strong {{ display:block; color:#fff; font-size:14px; overflow-wrap:anywhere; }}
     .overview-services {{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }}
     .overview-services-label {{ margin-right:3px; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }}
-    .public-link-host {{ margin-left:auto; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }}
     .service-link {{ display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#e8f7ff; text-decoration:none; font-size:12px; font-weight:700; }}
     .service-link:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.10); }}
     .external-icon {{ color:var(--brand); font-size:14px; }}
@@ -4147,7 +4146,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <div class="overview-metric"><span>Build</span><strong>v{esc(build["version"])} · {esc(build["channel"])}</strong></div>
                 <div class="overview-metric"><span>VPS Uptime</span><strong>{esc(build["uptime"])}</strong></div>
               </div>
-              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details>{f'<span class="public-link-host">Links: {esc(state["PUBLIC_DOMAIN"])}</span>' if state.get("PUBLIC_DOMAIN") else ''}</div>
+              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details></div>
               <div class="overview-workspace">
               <section class="config-block">
                 <div class="block-head">
@@ -4221,7 +4220,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <button class="subtab-button active" type="button" data-config-target="core">Core</button>
                 <button class="subtab-button" type="button" data-config-target="extra">Extra Port Forwarding</button>
                 <button class="subtab-button" type="button" data-config-target="dmz">DMZ</button>
-                <button class="subtab-button" type="button" data-config-target="links">Public Links</button>
+                <button class="subtab-button" type="button" data-config-target="domain">Domain</button>
               </div>
               <div data-config-page="core">
               <section class="config-block">
@@ -4316,12 +4315,12 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   <details class="profile-details"><summary>Ports excluded from DMZ</summary><div class="summary-list">{dmz_exclusions}</div></details>
                 </section>
               </div>
-              <div data-config-page="links" hidden>
+              <div data-config-page="domain" hidden>
                 <section class="config-block">
-                  <div class="block-head"><h3>Public Links</h3><p>Use an optional hostname for the Public Services links. Set up your DNS or dynamic DNS provider separately. This changes only the links in this Web UI.</p></div>
-                  <div class="grid"><label>Hostname (optional)<input form="public-domain-form" name="domain" type="text" maxlength="253" value="{esc(state.get('PUBLIC_DOMAIN', ''))}" placeholder="haibox.example.com" autocomplete="off"></label></div>
-                  <div class="actions"><button class="primary" type="submit" form="public-domain-form" name="operation" value="add">Add</button><button class="secondary" type="submit" form="public-domain-form" name="operation" value="remove" formnovalidate>Remove</button></div>
-                  <p class="hint">Removing the hostname makes the links use the VPS public IP again.</p>
+                  <div class="block-head"><h3>Domain</h3><p>Set a domain for the Public Services links in Overview. Configure DNS or dynamic DNS separately; this only changes where those links point.</p></div>
+                  <div class="grid"><label class="field"><span>Domain for Public Services</span><input form="public-domain-form" name="domain" type="text" maxlength="253" value="{esc(state.get('PUBLIC_DOMAIN', ''))}" placeholder="haibox.example.com" autocomplete="off"{' readonly' if state.get('PUBLIC_DOMAIN') else ''}></label></div>
+                  <div class="actions">{'<button class="secondary" type="submit" form="public-domain-form" name="operation" value="remove">Remove</button>' if state.get('PUBLIC_DOMAIN') else '<button class="primary" type="submit" form="public-domain-form" name="operation" value="add">Add</button>'}</div>
+                  <p class="hint">{ 'Remove the domain to use the VPS public IP in those links again.' if state.get('PUBLIC_DOMAIN') else 'Enter your domain, then select Add to use it in the Public Services links.' }</p>
                 </section>
               </div>
             <div id="config-runtime-actions">
@@ -4486,7 +4485,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
           page.hidden = page.dataset.configPage !== tabName;
         }});
         const runtimeActions = document.getElementById("config-runtime-actions");
-        if (runtimeActions) runtimeActions.hidden = tabName === "links";
+        if (runtimeActions) runtimeActions.hidden = tabName === "domain";
         try {{ window.sessionStorage.setItem(activeConfigKey, tabName); }} catch (err) {{}}
       }}
 
@@ -4874,7 +4873,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       activateTab(initialTab);
       let initialConfigTab = "core";
       try {{ initialConfigTab = window.sessionStorage.getItem(activeConfigKey) || "core"; }} catch (err) {{}}
-      if (!["core", "extra", "dmz", "links"].includes(initialConfigTab)) initialConfigTab = "core";
+      if (!["core", "extra", "dmz", "domain"].includes(initialConfigTab)) initialConfigTab = "core";
       activateConfigTab(initialConfigTab);
 
       const extraRuleList = document.getElementById("extra-rule-list");
@@ -5551,7 +5550,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.4"
+    server_version = "HAIBOX-WebUI/6.6-dev.5"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6584,7 +6583,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.4 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.5 - System Health"
   echo "============================================================"
   echo
 
@@ -7012,7 +7011,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.4 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.5 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
