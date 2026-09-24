@@ -102,7 +102,7 @@ Addresses, service ports and forwarding rules can be adjusted from the Web UI be
 
 ## Development builds
 
-The `main` branch contains the latest Golden release. New work is validated on `develop` and can be installed only on a dedicated test environment with:
+The `main` branch contains the latest Golden release. After each approved release, `develop` is synchronized to that exact Golden before the next development build starts. The first new change receives the `-dev.1` suffix. New work is validated on `develop` and can be installed only on a dedicated test environment with:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/develop/install-dev.sh)

@@ -236,6 +236,8 @@ Unknown flags must fail rather than being silently ignored.
 10. Any change to routing, NAT, DNAT, SNAT, WireGuard `AllowedIPs`, or rollback behavior requires the full real-environment regression suite.
 11. A successful syntax check or installation is not sufficient to declare a new Golden.
 12. Record each approved release checksum and the physical regression-test result in this document or its successor.
+13. After a Golden is approved and published on `main`, merge that exact `main` state into `develop` before starting another development cycle. Resolve older development changes in favor of the approved Golden; keep the branch history. Verify that the resulting `develop` tree matches `main` before making new changes.
+14. Start the next development build from the synchronized Golden source. Give it a `-dev.1` version only when implementing the first new change; do not label the unmodified Golden as a development build.
 
 ## 13. Mandatory regression checklist
 
@@ -272,7 +274,7 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] A valid single-port extra rule applies correctly.
 - [ ] A valid range rule with identical public/target range applies correctly.
 - [ ] A valid translated range applies correctly.
-- [ ] Proxmox exposure defaults to disabled and works only when enabled.
+- [ ] Proxmox TCP `8006` is always included in the standard public mappings.
 - [ ] Windows Orchestrator has no default public DNAT.
 
 ### D. WireGuard core
@@ -307,7 +309,7 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] StreamHub HTTPS `443` and alternate web `8444` work.
 - [ ] StreamHub TCP `7900-7940` and all listed service/FTP mappings are present and application-tested where equipment permits.
 - [ ] StreamHub UDP `7900-7940` and all listed UDP ranges are present and application-tested where equipment permits.
-- [ ] Enabled Proxmox TCP `8006` reaches internal `8006`; disabled mode removes the mapping.
+- [ ] Proxmox TCP `8006` reaches internal `8006` through both public and hairpin mappings.
 - [ ] At least one configured extra TCP rule and one configured extra UDP rule are tested end to end.
 
 ### G. Hairpin behavior
