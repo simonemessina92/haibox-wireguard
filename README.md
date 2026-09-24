@@ -110,9 +110,11 @@ bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireg
 
 Development builds may change an active VPS configuration and should not be used as production releases. See [`DEVELOPMENT_BASELINE.md`](DEVELOPMENT_BASELINE.md) for engineering constraints and regression checks, and [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
-The current `6.6-dev.3` build adds a first-run setup wizard on clean installations. After replacing the initial password, enter the router LAN IP and choose a /16–/24 prefix. The wizard applies and persists the configuration, presents the router profile first and offers a separate support-client profile for Android, iOS and computers. Both profiles offer text, `.conf` and QR. The router check shows a green confirmation only after active tunnel reachability. Refreshing the wizard starts again at the LAN screen with saved values. Existing applied installations continue directly to the dashboard. Apply shows elapsed progress and avoids redundant WireGuard and firewall service restarts when the runtime is already healthy.
+The current `6.6-dev.4` build adds a first-run setup wizard on clean installations. After replacing the initial password, enter the router LAN IP and choose a /16–/24 prefix. The wizard applies and persists the configuration, presents the router profile first and offers a separate support-client profile for Android, iOS and computers. Both profiles offer text, `.conf` and QR. The router check shows a green confirmation only after active tunnel reachability. Refreshing the wizard starts again at the LAN screen with saved values. Existing applied installations continue directly to the dashboard. Apply shows elapsed progress and avoids redundant WireGuard and firewall service restarts when the runtime is already healthy.
 
 In the development Configuration view, an optional DMZ IP receives public TCP and UDP ports left unclaimed by standard HAIBOX mappings, Extra rules and VPS services. The same precedence applies to WireGuard hairpin traffic. Keep the destination blank to disable DMZ.
+
+Configuration → Public Links accepts an optional hostname for Public Services links and service URLs. Configure DNS or dynamic DNS separately. Add saves it immediately, and Remove restores links based on the VPS public IP. This only changes Web UI navigation.
 
 ## Releases and integrity
 

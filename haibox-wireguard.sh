@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.3
+# Version 6.6-dev.4
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.3 avoids repeated WireGuard and firewall restarts on Apply.
+# Version 6.6-dev.4 adds an optional hostname for Web UI service links.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -183,7 +183,7 @@ save_state() {
   for key in LAN_CIDR ROUTER_LAN_IP PROXMOX_IP STREAMHUB_IP HSG_IP MAKITO_ENC_IP WINDOWS_ORCH_IP \
     UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
     MAKITO_ENC_UDP_FROM MAKITO_ENC_UDP_TO HSG_SRT_UDP_FROM HSG_SRT_UDP_TO PUB_IFACE PUB_IP \
-    WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES DMZ_IP; do
+    WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES DMZ_IP PUBLIC_DOMAIN; do
     value="${!key}"
     value="${value//\\/\\\\}"
     value="${value//\"/\\\"}"
@@ -227,6 +227,7 @@ init_defaults() {
   WEBUI_BIND="${WEBUI_BIND:-0.0.0.0}"
   EXTRA_PF_RULES="${EXTRA_PF_RULES:-}"
   DMZ_IP="${DMZ_IP:-}"
+  PUBLIC_DOMAIN="${PUBLIC_DOMAIN:-}"
 
   # Fixed defaults from your StreamHub PDF + chosen fixed range
   STREAMHUB_UDP_7900_FROM="7900"
@@ -543,7 +544,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.3"
+SCRIPT_VERSION = "6.6-dev.4"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -2265,6 +2266,7 @@ STATE_KEYS = [
     "WEBUI_BIND",
     "EXTRA_PF_RULES",
     "DMZ_IP",
+    "PUBLIC_DOMAIN",
 ]
 
 DEFAULTS = {
@@ -2293,6 +2295,7 @@ DEFAULTS = {
     "WEBUI_BIND": "0.0.0.0",
     "EXTRA_PF_RULES": "",
     "DMZ_IP": "",
+    "PUBLIC_DOMAIN": "",
 }
 
 FIXED_PORTS = {
@@ -2747,8 +2750,22 @@ def management_rows(state: Dict[str, str]) -> str:
     ])
 
 
+def public_link_host(state: Dict[str, str]) -> str:
+    return state.get("PUBLIC_DOMAIN", "") or state.get("PUB_IP") or "SERVER_IP"
+
+
+def validate_public_domain(raw: str) -> str:
+    domain = raw.strip().lower().rstrip(".")
+    if not domain or len(domain) > 253 or any(
+        not re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label)
+        for label in domain.split(".")
+    ):
+        raise ValueError("Enter a hostname such as haibox.example.com, without https://, a port or a path.")
+    return domain
+
+
 def public_service_rows(state: Dict[str, str]) -> str:
-    host = state.get("PUB_IP") or "SERVER_IP"
+    host = public_link_host(state)
     rows: List[str] = []
     proxmox_url = f"https://{host}:{FIXED_PORTS['PROXMOX_GUI_PUB_PORT']}"
     rows.append(summary_row("Proxmox GUI", proxmox_url, "Always published through the VPS", proxmox_url))
@@ -2805,7 +2822,7 @@ def public_service_rows(state: Dict[str, str]) -> str:
 
 
 def public_service_links(state: Dict[str, str]) -> str:
-    host = state.get("PUB_IP") or "SERVER_IP"
+    host = public_link_host(state)
     services = [
         ("StreamHub", f"https://{host}:443"),
         ("Makito X4E", f"https://{host}:{FIXED_PORTS['MAKITO_GUI_PUB_PORT']}"),
@@ -4004,6 +4021,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .overview-metric strong {{ display:block; color:#fff; font-size:14px; overflow-wrap:anywhere; }}
     .overview-services {{ display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-bottom:12px; }}
     .overview-services-label {{ margin-right:3px; color:var(--muted); font-size:11px; font-weight:800; text-transform:uppercase; }}
+    .public-link-host {{ margin-left:auto; color:var(--muted); font-size:11px; overflow-wrap:anywhere; }}
     .service-link {{ display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:7px 10px; border:1px solid var(--line); border-radius:8px; background:var(--panel-soft); color:#e8f7ff; text-decoration:none; font-size:12px; font-weight:700; }}
     .service-link:hover {{ border-color:rgba(0,163,224,.45); background:rgba(0,163,224,.10); }}
     .external-icon {{ color:var(--brand); font-size:14px; }}
@@ -4129,7 +4147,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <div class="overview-metric"><span>Build</span><strong>v{esc(build["version"])} · {esc(build["channel"])}</strong></div>
                 <div class="overview-metric"><span>VPS Uptime</span><strong>{esc(build["uptime"])}</strong></div>
               </div>
-              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details></div>
+              <div class="overview-services"><span class="overview-services-label">Public Services</span>{services_links}<details class="redirect-details"><summary>Port Redirects</summary><div class="redirect-list">{redirects_html}</div></details>{f'<span class="public-link-host">Links: {esc(state["PUBLIC_DOMAIN"])}</span>' if state.get("PUBLIC_DOMAIN") else ''}</div>
               <div class="overview-workspace">
               <section class="config-block">
                 <div class="block-head">
@@ -4203,6 +4221,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <button class="subtab-button active" type="button" data-config-target="core">Core</button>
                 <button class="subtab-button" type="button" data-config-target="extra">Extra Port Forwarding</button>
                 <button class="subtab-button" type="button" data-config-target="dmz">DMZ</button>
+                <button class="subtab-button" type="button" data-config-target="links">Public Links</button>
               </div>
               <div data-config-page="core">
               <section class="config-block">
@@ -4297,12 +4316,22 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                   <details class="profile-details"><summary>Ports excluded from DMZ</summary><div class="summary-list">{dmz_exclusions}</div></details>
                 </section>
               </div>
+              <div data-config-page="links" hidden>
+                <section class="config-block">
+                  <div class="block-head"><h3>Public Links</h3><p>Use an optional hostname for the Public Services links. Set up your DNS or dynamic DNS provider separately. This changes only the links in this Web UI.</p></div>
+                  <div class="grid"><label>Hostname (optional)<input form="public-domain-form" name="domain" type="text" maxlength="253" value="{esc(state.get('PUBLIC_DOMAIN', ''))}" placeholder="haibox.example.com" autocomplete="off"></label></div>
+                  <div class="actions"><button class="primary" type="submit" form="public-domain-form" name="operation" value="add">Add</button><button class="secondary" type="submit" form="public-domain-form" name="operation" value="remove" formnovalidate>Remove</button></div>
+                  <p class="hint">Removing the hostname makes the links use the VPS public IP again.</p>
+                </section>
+              </div>
+            <div id="config-runtime-actions">
             <div class="actions">
               <button class="primary" type="submit" id="apply-button">Apply + Make Persistent</button>
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
             <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
+            </div>
             </div>
 
             <div class="tab-page" data-tab-page="profiles" hidden>
@@ -4335,6 +4364,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               </div>
             </div>
           </form>
+          <form id="public-domain-form" method="post" action="/public-domain"></form>
         </div>
       </section>
 
@@ -4455,6 +4485,8 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         configPages.forEach(function(page) {{
           page.hidden = page.dataset.configPage !== tabName;
         }});
+        const runtimeActions = document.getElementById("config-runtime-actions");
+        if (runtimeActions) runtimeActions.hidden = tabName === "links";
         try {{ window.sessionStorage.setItem(activeConfigKey, tabName); }} catch (err) {{}}
       }}
 
@@ -4842,7 +4874,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       activateTab(initialTab);
       let initialConfigTab = "core";
       try {{ initialConfigTab = window.sessionStorage.getItem(activeConfigKey) || "core"; }} catch (err) {{}}
-      if (!["core", "extra", "dmz"].includes(initialConfigTab)) initialConfigTab = "core";
+      if (!["core", "extra", "dmz", "links"].includes(initialConfigTab)) initialConfigTab = "core";
       activateConfigTab(initialConfigTab);
 
       const extraRuleList = document.getElementById("extra-rule-list");
@@ -5206,12 +5238,18 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
         "WEBUI_BIND": current.get("WEBUI_BIND", "0.0.0.0"),
         "EXTRA_PF_RULES": current.get("EXTRA_PF_RULES", ""),
         "DMZ_IP": form.get("DMZ_IP", [current.get("DMZ_IP", "")])[0].strip(),
+        "PUBLIC_DOMAIN": current.get("PUBLIC_DOMAIN", ""),
         "UFW_WAS_ACTIVE": current.get("UFW_WAS_ACTIVE", "N"),
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
     confirm = form.get("WEBUI_PASSWORD_CONFIRM", [""])[0]
     current_password = form.get("WEBUI_CURRENT_PASSWORD", [""])[0]
     errors: List[str] = []
+    if values["PUBLIC_DOMAIN"]:
+        try:
+            values["PUBLIC_DOMAIN"] = validate_public_domain(values["PUBLIC_DOMAIN"])
+        except ValueError as exc:
+            errors.append(str(exc))
     networks = {}
     for key in ("LAN_CIDR", "WG_TUN_CIDR"):
         try:
@@ -5513,7 +5551,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.3"
+    server_version = "HAIBOX-WebUI/6.6-dev.4"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5868,6 +5906,22 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_redirect("/")
                 return
             self.send_redirect("/wizard")
+            return
+
+        if path == "/public-domain":
+            operation = form.get("operation", [""])[0]
+            try:
+                if operation == "add":
+                    domain = validate_public_domain(form.get("domain", [""])[0])
+                elif operation == "remove":
+                    domain = ""
+                else:
+                    raise ValueError("Choose Add or Remove.")
+                write_state({"PUBLIC_DOMAIN": domain})
+                set_session_flash(session_id, "Public Services links now use " + (domain or "the VPS public IP") + ".", "", "ok")
+            except (ValueError, OSError) as exc:
+                set_session_flash(session_id, str(exc), "", "error")
+            self.send_redirect("/")
             return
 
         if path == "/apply":
@@ -6530,7 +6584,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.3 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.4 - System Health"
   echo "============================================================"
   echo
 
@@ -6958,7 +7012,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.3 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.4 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

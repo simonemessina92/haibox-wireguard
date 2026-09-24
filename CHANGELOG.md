@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Added in v6.6-dev.4
+
+- Optional hostname in Configuration → Public Links. Add uses it in Public Services links and service URLs; Remove restores the VPS public IP. Saved independently of Apply, without changing DNS, VPN endpoints or forwarding rules.
+
 ### Improved in v6.6-dev.3
 
 - Apply keeps a healthy WireGuard interface running when its generated configuration has not changed; changed or unhealthy runtime state still uses the existing restart path.
