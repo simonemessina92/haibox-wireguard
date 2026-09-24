@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.2
+# Version 6.6-dev.3
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.2 adds client profiles, connection feedback and optional DMZ.
+# Version 6.6-dev.3 avoids repeated WireGuard and firewall restarts on Apply.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -543,7 +543,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.2"
+SCRIPT_VERSION = "6.6-dev.3"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -4091,6 +4091,10 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     @media (prefers-reduced-motion: reduce) {{
       *, *::before, *::after {{ animation: none !important; transition: none !important; }}
     }}
+    .apply-progress {{ position:fixed;right:24px;bottom:24px;z-index:50;display:flex;align-items:center;gap:13px;padding:15px 20px;border:1px solid rgba(0,163,224,.45);border-radius:14px;background:#0b1722;color:#f5fbff;box-shadow:0 14px 40px #0009;font-size:14px; }}
+    .apply-progress[hidden] {{ display:none; }}
+    .apply-spinner {{ width:22px;height:22px;flex:none;border:3px solid #24495b;border-top-color:#00a3e0;border-radius:50%;animation:apply-spin .8s linear infinite; }}
+    @keyframes apply-spin {{ to {{ transform:rotate(360deg); }} }}
   </style>
 </head>
 <body>
@@ -4117,7 +4121,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <p class="panel-subtitle">Live status, traffic, configuration and VPN profiles.</p>
             </div>
           </div>
-          <form method="post" action="/apply">
+          <form id="control-form" method="post" action="/apply">
             <div class="tab-page" data-tab-page="overview">
               <div class="overview-summary">
                 <div class="overview-metric"><span>Public IP</span><strong>{esc(host)}</strong></div>
@@ -4294,7 +4298,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 </section>
               </div>
             <div class="actions">
-              <button class="primary" type="submit">Apply + Make Persistent</button>
+              <button class="primary" type="submit" id="apply-button">Apply + Make Persistent</button>
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
               <button class="secondary" type="submit" formaction="/health" formmethod="post">System Health</button>
             </div>
@@ -4396,8 +4400,20 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     </div>
 
   </div>
+  <div class="apply-progress" id="apply-progress" hidden role="status" aria-live="polite"><span class="apply-spinner" aria-hidden="true"></span><span id="apply-progress-text">Applying configuration…</span></div>
   <script>
     (function() {{
+      const controlForm = document.getElementById("control-form");
+      if (controlForm) controlForm.addEventListener("submit", function(event) {{
+        if (!event.submitter || event.submitter.id !== "apply-button") return;
+        const progress = document.getElementById("apply-progress");
+        const progressText = document.getElementById("apply-progress-text");
+        const button = event.submitter;
+        progress.hidden = false;
+        button.textContent = "Applying…";
+        const started = Date.now();
+        window.setInterval(function() {{ progressText.textContent = "Applying and saving · " + Math.floor((Date.now() - started) / 1000) + "s"; }}, 1000);
+      }});
       const activeTabKey = "haibox_active_config_tab";
       const activeConfigKey = "haibox_active_config_section";
       const tabButtons = document.querySelectorAll("[data-tab-target]");
@@ -5497,7 +5513,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.2"
+    server_version = "HAIBOX-WebUI/6.6-dev.3"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6146,6 +6162,25 @@ wg_up() {
   ok "WireGuard is up: wg-quick@${WG_NAME}"
 }
 
+wireguard_runtime_matches() {
+  systemctl is-active --quiet "wg-quick@${WG_NAME}" || return 1
+  [[ "$(wg show "${WG_NAME}" listen-port 2>/dev/null)" == "${WG_PORT}" ]] || return 1
+  local peers allowed prefix route
+  peers="$(wg show "${WG_NAME}" peers 2>/dev/null)" || return 1
+  grep -Fxq "${GL_PUB}" <<< "${peers}" || return 1
+  allowed="$(wg show "${WG_NAME}" allowed-ips 2>/dev/null)" || return 1
+  grep -F "${GL_PUB}" <<< "${allowed}" | grep -Fq "${WG_GL_IP}/32" || return 1
+  grep -F "${GL_PUB}" <<< "${allowed}" | grep -Fq "${LAN_CIDR}" || return 1
+  if [[ -n "${REMOTE_CLIENT_PUB:-}" ]]; then
+    grep -Fxq "${REMOTE_CLIENT_PUB}" <<< "${peers}" || return 1
+    grep -F "${REMOTE_CLIENT_PUB}" <<< "${allowed}" | grep -Fq "${REMOTE_CLIENT_IP}/32" || return 1
+  fi
+  prefix="$(cidr_prefix "${WG_TUN_CIDR}")"
+  ip -4 addr show dev "${WG_NAME}" 2>/dev/null | grep -Fq "${WG_VPS_IP}/${prefix}" || return 1
+  route="$(ip -4 route show "${LAN_CIDR}" 2>/dev/null)"
+  [[ "${route}" == *"dev ${WG_NAME}"* ]] || return 1
+}
+
 wireguard_input_rule_exists() {
   iptables -C INPUT -p udp --dport "${WG_PORT}" -j ACCEPT >/dev/null 2>&1
 }
@@ -6433,10 +6468,14 @@ EOF
 
   systemctl daemon-reload
   systemctl enable "${UNIT_NAME}" >/dev/null 2>&1 || true
-  systemctl restart "${UNIT_NAME}" >/dev/null 2>&1 || systemctl start "${UNIT_NAME}"
+  if ! systemctl is-active --quiet "${UNIT_NAME}"; then
+    systemctl start "${UNIT_NAME}"
+  fi
   if [[ -f "${WG_CONF}" ]]; then
     systemctl enable "wg-quick@${WG_NAME}" >/dev/null 2>&1 || true
-    systemctl restart "wg-quick@${WG_NAME}" >/dev/null 2>&1 || systemctl start "wg-quick@${WG_NAME}"
+    if ! systemctl is-active --quiet "wg-quick@${WG_NAME}"; then
+      systemctl start "wg-quick@${WG_NAME}"
+    fi
   else
     warn "WireGuard config not found yet. Skipping wg-quick enable/restart."
   fi
@@ -6491,7 +6530,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.2 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.3 - System Health"
   echo "============================================================"
   echo
 
@@ -6756,7 +6795,9 @@ cleanup_previous_network_rules() (
 apply_runtime() (
   exec 9>/run/haibox-apply.lock
   flock -n 9 || { err "Another Haibox operation is running."; exit 1; }
+  local apply_started=${SECONDS}
   validate_config
+  log "Apply timing: validation $((SECONDS - apply_started))s"
   local backup item ufw_active=N wg_active=N wg_enabled=N rules_enabled=N
   backup="$(mktemp -d /root/haibox-rollback.XXXXXX)"
   iptables-save > "${backup}/iptables.v4"
@@ -6801,11 +6842,20 @@ apply_runtime() (
   cleanup_previous_network_rules
   write_wg_configs
   apply_sysctl
-  wg_up
+  if [[ -f "${backup}/$(basename "${WG_CONF}")" ]] &&
+     cmp -s "${backup}/$(basename "${WG_CONF}")" "${WG_CONF}" &&
+     wireguard_runtime_matches; then
+    ok "WireGuard configuration unchanged; keeping the active router tunnel."
+  else
+    wg_up
+  fi
+  log "Apply timing: WireGuard ready at $((SECONDS - apply_started))s"
   prepare_host_firewall
   iptables_apply_rules
+  log "Apply timing: firewall ready at $((SECONDS - apply_started))s"
   if [[ "${1:-N}" == Y ]]; then make_persistent; fi
   cp -p "${STATE_FILE}" "${APPLIED_STATE_FILE}"
+  log "Apply timing: complete in $((SECONDS - apply_started))s"
 )
 
 apply_all() {
@@ -6908,7 +6958,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.2 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.3 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

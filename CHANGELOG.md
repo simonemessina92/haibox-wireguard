@@ -4,6 +4,12 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Improved in v6.6-dev.3
+
+- Apply keeps a healthy WireGuard interface running when its generated configuration has not changed; changed or unhealthy runtime state still uses the existing restart path.
+- Make Persistent enables the firewall and WireGuard services without restarting already active services and replaying the firewall a second time.
+- Apply reports elapsed validation, WireGuard, firewall and total times in Last Output; the button displays an in-progress indicator while the request runs.
+
 ### Added in v6.6-dev.2
 
 - Router-first profile switch in the initial wizard, with an optional Remote VPN Client profile for Android, iOS and computers; both profiles have authenticated QR codes in the wizard and VPN Profiles.
