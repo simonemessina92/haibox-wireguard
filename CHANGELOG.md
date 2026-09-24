@@ -4,6 +4,13 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Added in v6.6-dev.2
+
+- Router-first profile switch in the initial wizard, with an optional Remote VPN Client profile for Android, iOS and computers; both profiles have authenticated QR codes in the wizard and VPN Profiles.
+- Connection check animates a pulsing circle and shows a green check only after active router tunnel verification.
+- Optional DMZ destination in Configuration: fixed and Extra mappings take precedence; VPS listener ports are excluded; public and WireGuard hairpin paths use the same fallback.
+- Existing Remote VPN Client keys and live router tunnel are kept when creating or refreshing a client that already exists. A new peer is added live without restarting WireGuard.
+
 ### Added in v6.6-dev.1
 
 - First-run browser wizard for router LAN, automatic Apply + Make Persistent, router WireGuard profile with copy/download/QR, and active tunnel verification before Overview.

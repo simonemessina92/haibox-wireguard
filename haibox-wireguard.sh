@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.1
+# Version 6.6-dev.2
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.1 adds a first-run setup wizard on top of the v6.5 Golden.
+# Version 6.6-dev.2 adds client profiles, connection feedback and optional DMZ.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -183,7 +183,7 @@ save_state() {
   for key in LAN_CIDR ROUTER_LAN_IP PROXMOX_IP STREAMHUB_IP HSG_IP MAKITO_ENC_IP WINDOWS_ORCH_IP \
     UFW_WAS_ACTIVE PYTHON3_INSTALLED_BY_SCRIPT WG_PORT WG_TUN_CIDR WG_VPS_IP WG_GL_IP REMOTE_CLIENT_IP \
     MAKITO_ENC_UDP_FROM MAKITO_ENC_UDP_TO HSG_SRT_UDP_FROM HSG_SRT_UDP_TO PUB_IFACE PUB_IP \
-    WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES; do
+    WEBUI_ENABLED WEBUI_PORT WEBUI_USER WEBUI_BIND EXTRA_PF_RULES DMZ_IP; do
     value="${!key}"
     value="${value//\\/\\\\}"
     value="${value//\"/\\\"}"
@@ -226,6 +226,7 @@ init_defaults() {
   WEBUI_USER="${WEBUI_USER:-hairoot}"
   WEBUI_BIND="${WEBUI_BIND:-0.0.0.0}"
   EXTRA_PF_RULES="${EXTRA_PF_RULES:-}"
+  DMZ_IP="${DMZ_IP:-}"
 
   # Fixed defaults from your StreamHub PDF + chosen fixed range
   STREAMHUB_UDP_7900_FROM="7900"
@@ -294,6 +295,7 @@ print_config() {
   echo "  HSG (HMG) IP:            ${HSG_IP}"
   echo "  Makito X4E IP:           ${MAKITO_ENC_IP}"
   echo "  Windows 11 Orchestrator: ${WINDOWS_ORCH_IP} (no public DNAT)"
+  echo "  DMZ destination:         ${DMZ_IP:-disabled}"
   echo
   echo "  WireGuard UDP port:      ${WG_PORT}"
   echo "  WG tunnel CIDR:          ${WG_TUN_CIDR}"
@@ -541,7 +543,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.1"
+SCRIPT_VERSION = "6.6-dev.2"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -2262,6 +2264,7 @@ STATE_KEYS = [
     "WEBUI_USER",
     "WEBUI_BIND",
     "EXTRA_PF_RULES",
+    "DMZ_IP",
 ]
 
 DEFAULTS = {
@@ -2289,6 +2292,7 @@ DEFAULTS = {
     "WEBUI_USER": "hairoot",
     "WEBUI_BIND": "0.0.0.0",
     "EXTRA_PF_RULES": "",
+    "DMZ_IP": "",
 }
 
 FIXED_PORTS = {
@@ -2665,6 +2669,41 @@ def extra_rules_summary_rows(state: Dict[str, str]) -> str:
             f'To {rule["target_ip"]}:{target_range}',
         ))
     return "".join(rows)
+
+
+DMZ_EXCLUSION_CACHE: Dict[str, object] = {}
+
+
+def dmz_exclusion_rows(state: Dict[str, str]) -> str:
+    relevant = ("WG_PORT", "WEBUI_PORT", "MAKITO_ENC_UDP_FROM", "MAKITO_ENC_UDP_TO",
+                "HSG_SRT_UDP_FROM", "HSG_SRT_UDP_TO", "EXTRA_PF_RULES")
+    cache_key = tuple(state.get(key, "") for key in relevant)
+    if DMZ_EXCLUSION_CACHE.get("key") == cache_key and time.monotonic() - float(DMZ_EXCLUSION_CACHE.get("time", 0)) < 30:
+        return str(DMZ_EXCLUSION_CACHE["html"])
+    reserved = standard_port_reservations(state)
+    for rule in parse_extra_rules(state.get("EXTRA_PF_RULES", "")):
+        reserved[rule["proto"]].append((int(rule["public_from"]), int(rule["public_to"]), rule.get("label") or "Extra rule"))
+    # Show the VPS listener exclusions that are also protected during Apply.
+    try:
+        output = subprocess.run(["ss", "-H", "-lntu"], capture_output=True, text=True, timeout=2, check=False)
+        if output.returncode == 0:
+            for line in output.stdout.splitlines():
+                fields = line.split()
+                if len(fields) < 5 or fields[0] not in ("tcp", "udp") or fields[4].startswith(("127.", "[::1]:", "::1:")):
+                    continue
+                match = re.search(r":(\d+)$", fields[4])
+                if match:
+                    port = int(match.group(1))
+                    if 1 <= port <= 65535 and not any(first <= port <= last for first, last, _ in reserved[fields[0]]):
+                        reserved[fields[0]].append((port, port, "VPS listener"))
+    except (OSError, subprocess.SubprocessError):
+        pass
+    html = "".join(
+        f'<div class="summary-row"><strong>{esc(proto.upper() + " " + range_text(str(first), str(last)))}</strong><span>{esc(label)}</span></div>'
+        for proto in ("tcp", "udp") for first, last, label in sorted(reserved[proto])
+    )
+    DMZ_EXCLUSION_CACHE.update(key=cache_key, time=time.monotonic(), html=html)
+    return html
 
 
 def summary_row(label: str, value: str, note: str = "", href: str = "", value_class: str = "") -> str:
@@ -3120,7 +3159,7 @@ def wizard_router_online() -> Tuple[bool, str]:
 def render_wizard(step: str = "network", message: str = "", level: str = "error") -> str:
     state = merged_state()
     current = applied_state()
-    profile_ready = current is not None and Path(ROUTER_CONF_OUT).is_file()
+    profile_ready = current is not None and Path(ROUTER_CONF_OUT).is_file() and Path(REMOTE_CLIENT_CONF_OUT).is_file()
     if step not in ("network", "profile", "verify") or (step != "network" and not profile_ready):
         step = "network"
     step_number = {"network": 1, "profile": 2, "verify": 3}[step]
@@ -3136,14 +3175,22 @@ def render_wizard(step: str = "network", message: str = "", level: str = "error"
           <div class="actions"><button type="submit">Apply and generate profile <span aria-hidden="true">→</span></button></div>
         </form><p id="applying" class="hint" hidden>Applying network rules and saving them. This may take a moment…</p>"""
     elif step == "profile":
-        body = f"""<h1>Connect your router</h1><p>Import this WireGuard profile into your router and enable the tunnel. The private key stays the same if you refresh this page.</p>
-        <div class="profile-actions"><button type="button" id="copy-profile">Copy profile</button><a href="/download-router-config">Download .conf</a></div>
-        <details><summary>Show WireGuard configuration</summary><pre id="router-profile">{esc(router_config_text())}</pre></details>
-        <div class="qr"><img src="/wizard/router-qr" alt="QR code for the WireGuard router profile"><p class="hint">The QR contains the private key. Show it only to someone who manages this router.</p></div>
+        body = f"""<h1>WireGuard profiles</h1><p>First connect the HAIBOX router. The support client is available in the next tab if you need access from another device.</p>
+        <div class="profile-switch" role="tablist" aria-label="VPN profiles"><button type="button" class="selected" data-profile-tab="router">HAIBOX Router</button><button type="button" data-profile-tab="client">Remote VPN Client</button></div>
+        <section data-profile-panel="router"><p>Import this profile into your router and enable the tunnel. Its private key stays the same when you refresh.</p>
+          <div class="profile-actions"><button type="button" data-copy-profile="router-profile">Copy profile</button><a href="/download-router-config">Download .conf</a></div>
+          <details><summary>Show router configuration</summary><pre id="router-profile">{esc(router_config_text())}</pre></details>
+          <div class="qr"><img src="/wizard/router-qr" alt="QR code for the WireGuard router profile"><p class="hint">The QR contains the private key. Show it only to someone who manages this router.</p></div>
+        </section>
+        <section data-profile-panel="client" hidden><p>Optional access for an Android or iOS phone, or a computer. Import this profile in the WireGuard app to reach the HAIBOX LAN for remote support. It does not route all of the device's Internet traffic through the VPS.</p>
+          <div class="profile-actions"><button type="button" data-copy-profile="client-profile">Copy profile</button><a href="/download-remote-client">Download .conf</a></div>
+          <details><summary>Show client configuration</summary><pre id="client-profile">{esc(remote_client_config_text())}</pre></details>
+          <div class="qr"><img src="/wizard/client-qr" alt="QR code for the remote VPN client profile"><p class="hint">The QR contains the private key. Keep it private.</p></div>
+        </section>
         <div class="actions"><a class="back" href="/wizard?step=network">Back</a><a class="next" href="/wizard?step=verify">Next <span aria-hidden="true">→</span></a></div>"""
     else:
         body = """<h1>Check the connection</h1><p>Make sure the router profile is enabled, then check that the VPS can reach its WireGuard tunnel address.</p>
-        <div class="connection-status" id="connection-status" role="status">Waiting to check the router…</div>
+        <div class="connection-status" id="connection-status" role="status"><span class="connection-icon" aria-hidden="true"></span><span id="connection-message">Waiting to check the router…</span></div>
         <div class="actions"><a class="back" href="/wizard?step=profile">Back</a><button type="button" id="retry-check">Check again</button>
         <form method="post" action="/wizard/finish"><button id="finish-button" type="submit" disabled>Finish and open Overview</button></form></div>"""
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -3157,12 +3204,17 @@ def render_wizard(step: str = "network", message: str = "", level: str = "error"
     .profile-actions button {{background:#263d50}} details {{margin-top:18px}} summary {{cursor:pointer;color:#9fe2fc}} pre {{white-space:pre-wrap;overflow-wrap:anywhere;background:#07111a;border:1px solid #2b3c49;padding:14px;border-radius:12px;max-height:240px;overflow:auto}}
     .qr img {{max-width:220px;display:block;margin:16px auto;background:#fff;padding:10px;border-radius:12px}} .qr p {{font-size:12px}} .notice {{padding:12px;border-radius:10px;background:#3a2630;color:#ffd4dc;margin-top:20px;white-space:pre-wrap}} .notice.ok {{background:#173e34;color:#b3f6dd}}
     .connection-status {{padding:22px;border:1px solid #385366;border-radius:12px;margin-top:24px}} .checking::before {{content:"";display:inline-block;width:13px;height:13px;border:2px solid #00a3e0;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:10px}} @keyframes spin {{to {{transform:rotate(360deg)}}}}
+    .profile-switch {{display:flex;gap:8px;margin-top:22px}} .profile-switch button {{flex:1;background:#183044}} .profile-switch button.selected {{background:#008fc9}} [data-profile-panel][hidden] {{display:none}}
+    .connection-status {{display:flex;align-items:center;gap:18px;min-height:110px}} .connection-icon {{display:grid;place-items:center;flex:none;width:52px;height:52px;border-radius:50%;border:3px solid #57738a;color:#fff;font-size:29px;font-weight:800}}
+    .connection-status.checking::before {{content:none}} .checking .connection-icon {{border-color:#00a3e0;background:#00a3e022;animation:pulse 1.2s ease-in-out infinite}} .connected .connection-icon {{border-color:#39d98a;background:#1a8e58}} .connected .connection-icon::after {{content:"✓"}} .disconnected .connection-icon {{border-color:#df9363}}
+    @keyframes pulse {{50% {{box-shadow:0 0 0 12px #00a3e025;opacity:.5}}}}
     </style></head><body><main class="card"><div class="brand"><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"><span>Initial setup · {step_number} of 3</span></div>
     <div class="progress" aria-hidden="true">{''.join('<i class="on"></i>' if n <= step_number else '<i></i>' for n in (1,2,3))}</div>{status}{body}</main>
     <script>
     const form=document.getElementById('wizard-form');if(form)form.addEventListener('submit',()=>{{form.querySelector('button').disabled=true;document.getElementById('applying').hidden=false;}});
-    const copy=document.getElementById('copy-profile');if(copy)copy.addEventListener('click',async()=>{{try{{await navigator.clipboard.writeText(document.getElementById('router-profile').textContent);copy.textContent='Copied';}}catch(e){{copy.textContent='Copy failed';}}}});
-    const retry=document.getElementById('retry-check');if(retry){{const box=document.getElementById('connection-status'),finish=document.getElementById('finish-button');async function check(){{finish.disabled=true;retry.disabled=true;box.classList.add('checking');box.textContent='Checking WireGuard and router reachability…';const start=Date.now();let result;try{{const response=await fetch('/api/wizard-connection',{{cache:'no-store',credentials:'same-origin'}});result=await response.json();if(!response.ok)throw Error(result.message||'Check failed');}}catch(e){{result={{connected:false,message:'Cannot reach the VPS check. Retry.'}}}}await new Promise(resolve=>setTimeout(resolve,Math.max(0,5000-(Date.now()-start))));box.classList.remove('checking');box.textContent=result.message;finish.disabled=!result.connected;retry.disabled=false;}}retry.addEventListener('click',check);check();}}
+    document.querySelectorAll('[data-profile-tab]').forEach(button=>button.addEventListener('click',()=>{{document.querySelectorAll('[data-profile-tab]').forEach(tab=>tab.classList.toggle('selected',tab===button));document.querySelectorAll('[data-profile-panel]').forEach(panel=>panel.hidden=panel.dataset.profilePanel!==button.dataset.profileTab);}}));
+    document.querySelectorAll('[data-copy-profile]').forEach(button=>button.addEventListener('click',async()=>{{try{{await navigator.clipboard.writeText(document.getElementById(button.dataset.copyProfile).textContent);button.textContent='Copied';}}catch(e){{button.textContent='Copy failed';}}}}));
+    const retry=document.getElementById('retry-check');if(retry){{const box=document.getElementById('connection-status'),label=document.getElementById('connection-message'),finish=document.getElementById('finish-button');async function check(){{finish.disabled=true;retry.disabled=true;box.classList.remove('connected','disconnected');box.classList.add('checking');label.textContent='Checking WireGuard and router reachability…';const start=Date.now();let result;try{{const response=await fetch('/api/wizard-connection',{{cache:'no-store',credentials:'same-origin'}});result=await response.json();if(!response.ok)throw Error(result.message||'Check failed');}}catch(e){{result={{connected:false,message:'Cannot reach the VPS check. Retry.'}}}}await new Promise(resolve=>setTimeout(resolve,Math.max(0,5000-(Date.now()-start))));box.classList.remove('checking');box.classList.add(result.connected?'connected':'disconnected');label.textContent=result.message;finish.disabled=!result.connected;retry.disabled=false;}}retry.addEventListener('click',check);check();}}
     </script></body></html>"""
 
 
@@ -3318,6 +3370,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     udp_summary = udp_range_rows(state)
     extra_rules_html = extra_rule_form_rows(state)
     extra_rules_summary = extra_rules_summary_rows(state)
+    dmz_exclusions = dmz_exclusion_rows(state)
     build = build_information()
     status_html = f'<div class="{status_class} header-status">{esc(message)}</div>' if message else ""
     return f"""<!DOCTYPE html>
@@ -3893,6 +3946,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .traffic-value.rx {{ color:#55ceff; }}
     .traffic-value.tx {{ color:#7aefb9; }}
     .profiles-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 310px), 1fr)); gap: 16px; }}
+    .profile-qr {{display:block;width:175px;max-width:100%;height:auto;margin:16px auto 4px;padding:8px;background:white;border-radius:12px}}
     .profile-card {{
       padding: 20px;
       border: 1px solid var(--line);
@@ -4144,6 +4198,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               <div class="subtab-bar" role="tablist" aria-label="Configuration sections">
                 <button class="subtab-button active" type="button" data-config-target="core">Core</button>
                 <button class="subtab-button" type="button" data-config-target="extra">Extra Port Forwarding</button>
+                <button class="subtab-button" type="button" data-config-target="dmz">DMZ</button>
               </div>
               <div data-config-page="core">
               <section class="config-block">
@@ -4231,6 +4286,13 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 </template>
               </section>
               </div>
+              <div data-config-page="dmz" hidden>
+                <section class="config-block">
+                  <div class="block-head"><h3>DMZ</h3><p>Forward unassigned public TCP and UDP ports to one LAN device. Standard HAIBOX, Extra rules and VPS services keep their ports.</p></div>
+                  <div class="grid">{input_row("DMZ destination IP (blank to disable)", "DMZ_IP", state.get("DMZ_IP", ""))}</div>
+                  <details class="profile-details"><summary>Ports excluded from DMZ</summary><div class="summary-list">{dmz_exclusions}</div></details>
+                </section>
+              </div>
             <div class="actions">
               <button class="primary" type="submit">Apply + Make Persistent</button>
               <button class="secondary" type="submit" formaction="/test" formmethod="post">Run Test</button>
@@ -4251,6 +4313,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     <a class="icon-action" href="/download-router-config" title="Download router configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
                   </div>
                   <details class="profile-details"><summary>View configuration</summary><pre id="router-config">{esc(router_config_text())}</pre></details>
+                  {f'<img class="profile-qr" src="/profile-qr/router" alt="Router WireGuard QR code">' if Path(ROUTER_CONF_OUT).is_file() else ''}
                 </section>
                 <section class="profile-card">
                   <div class="profile-card-head">
@@ -4263,6 +4326,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     <a class="icon-action" href="/download-remote-client" title="Download remote client configuration"><span class="download-icon" aria-hidden="true"></span><span>Download</span></a>
                   </div>
                   <details class="profile-details"><summary>View configuration</summary><pre id="remote-client-config">{esc(remote_client_config_text())}</pre></details>
+                  {f'<img class="profile-qr" src="/profile-qr/client" alt="Remote client WireGuard QR code">' if Path(REMOTE_CLIENT_CONF_OUT).is_file() else ''}
                 </section>
               </div>
             </div>
@@ -4762,7 +4826,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       activateTab(initialTab);
       let initialConfigTab = "core";
       try {{ initialConfigTab = window.sessionStorage.getItem(activeConfigKey) || "core"; }} catch (err) {{}}
-      if (!["core", "extra"].includes(initialConfigTab)) initialConfigTab = "core";
+      if (!["core", "extra", "dmz"].includes(initialConfigTab)) initialConfigTab = "core";
       activateConfigTab(initialConfigTab);
 
       const extraRuleList = document.getElementById("extra-rule-list");
@@ -5125,6 +5189,7 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
         "WEBUI_ENABLED": "Y",
         "WEBUI_BIND": current.get("WEBUI_BIND", "0.0.0.0"),
         "EXTRA_PF_RULES": current.get("EXTRA_PF_RULES", ""),
+        "DMZ_IP": form.get("DMZ_IP", [current.get("DMZ_IP", "")])[0].strip(),
         "UFW_WAS_ACTIVE": current.get("UFW_WAS_ACTIVE", "N"),
     }
     password = form.get("WEBUI_PASSWORD", [""])[0]
@@ -5139,6 +5204,16 @@ def apply_form_values(form: Dict[str, List[str]], current: Dict[str, str]) -> Tu
             errors.append(f"{key} must be a canonical IPv4 network, for example 192.168.10.0/24.")
     if len(networks) == 2 and networks["LAN_CIDR"].overlaps(networks["WG_TUN_CIDR"]):
         errors.append("LAN and WireGuard networks must not overlap.")
+    if values["DMZ_IP"]:
+        try:
+            dmz_address = ipaddress.IPv4Address(values["DMZ_IP"])
+            lan = networks.get("LAN_CIDR")
+            if lan is None or dmz_address not in lan or dmz_address in (lan.network_address, lan.broadcast_address):
+                errors.append("DMZ IP must be a usable host inside the HAIBOX LAN.")
+            elif values["DMZ_IP"] == values["ROUTER_LAN_IP"]:
+                errors.append("DMZ IP cannot be the router LAN address.")
+        except ValueError:
+            errors.append("DMZ IP must be an IPv4 address, or left empty to disable DMZ.")
     for key in ("ROUTER_LAN_IP", "PROXMOX_IP", "STREAMHUB_IP", "HSG_IP", "MAKITO_ENC_IP",
                 "WINDOWS_ORCH_IP", "WG_VPS_IP", "WG_GL_IP", "REMOTE_CLIENT_IP", "PUB_IP"):
         try:
@@ -5422,7 +5497,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.1"
+    server_version = "HAIBOX-WebUI/6.6-dev.2"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5468,6 +5543,22 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(data)
+
+    def send_profile_qr(self, kind: str) -> None:
+        profile = ROUTER_CONF_OUT if kind == "router" else REMOTE_CLIENT_CONF_OUT
+        if applied_state() is None or not Path(profile).is_file():
+            self.send_error(404, "WireGuard profile has not been generated.")
+            return
+        try:
+            qr = subprocess.run(["qrencode", "-t", "PNG", "-o", "-"],
+                                input=Path(profile).read_bytes(), capture_output=True,
+                                timeout=3, check=False)
+            if qr.returncode == 0:
+                self.send_png(qr.stdout)
+            else:
+                self.send_error(503, "QR generator unavailable; download the .conf profile.")
+        except (OSError, subprocess.SubprocessError):
+            self.send_error(503, "QR generator unavailable; download the .conf profile.")
 
     def send_download(self, data: bytes, filename: str, content_type: str = "application/octet-stream") -> None:
         self.send_response(200)
@@ -5570,23 +5661,16 @@ class Handler(BaseHTTPRequestHandler):
                 online, message = wizard_router_online()
                 self.send_json({"connected": online, "message": message})
                 return
-            if path == "/wizard/router-qr":
-                if applied_state() is None or not Path(ROUTER_CONF_OUT).is_file():
-                    self.send_error(404, "Router profile has not been generated.")
-                    return
-                try:
-                    qr = subprocess.run(["qrencode", "-t", "PNG", "-o", "-"],
-                                        input=Path(ROUTER_CONF_OUT).read_bytes(), capture_output=True,
-                                        timeout=3, check=False)
-                    if qr.returncode == 0:
-                        self.send_png(qr.stdout)
-                    else:
-                        self.send_error(503, "QR generator unavailable; download the .conf profile.")
-                except (OSError, subprocess.SubprocessError):
-                    self.send_error(503, "QR generator unavailable; download the .conf profile.")
+            if path in ("/wizard/router-qr", "/wizard/client-qr"):
+                self.send_profile_qr("router" if path.endswith("router-qr") else "client")
                 return
-            if path == "/download-router-config" and applied_state() is not None:
-                self.send_download(Path(ROUTER_CONF_OUT).read_bytes(), "haibox_router_wg.conf")
+            if path in ("/download-router-config", "/download-remote-client") and applied_state() is not None:
+                profile = ROUTER_CONF_OUT if path.endswith("router-config") else REMOTE_CLIENT_CONF_OUT
+                if not Path(profile).is_file():
+                    self.send_error(404, "WireGuard profile has not been generated.")
+                    return
+                name = "haibox_router_wg.conf" if path.endswith("router-config") else "haibox_remote_client_wg.conf"
+                self.send_download(Path(profile).read_bytes(), name)
                 return
             self.send_redirect("/wizard")
             return
@@ -5607,6 +5691,9 @@ class Handler(BaseHTTPRequestHandler):
                 })
             except (OSError, ValueError):
                 self.send_json({"available": False, "timestamp": int(time.time() * 1000), "rx_bytes": 0, "tx_bytes": 0, "devices": {}})
+            return
+        if path in ("/profile-qr/router", "/profile-qr/client"):
+            self.send_profile_qr(path.rsplit("/", 1)[-1])
             return
         if path == "/download-support-bundle":
             bundle = build_support_bundle()
@@ -5741,12 +5828,21 @@ class Handler(BaseHTTPRequestHandler):
                             write_state(current)
                             detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "Check the VPS service journal.")
                             raise ValueError("Apply and persistence failed. Previous settings restored. " + detail)
+                    if not Path(REMOTE_CLIENT_CONF_OUT).is_file():
+                        rc, output = run_script("--create-remote-client")
+                        if rc != 0:
+                            detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "Check the VPS service journal.")
+                            raise ValueError("Router profile is ready, but the Remote VPN Client could not be created: " + detail)
                     self.send_redirect("/wizard?step=profile")
                 except ValueError as exc:
                     set_session_flash(session_id, str(exc), "", "error")
                     self.send_redirect("/wizard")
                 return
             if path == "/wizard/finish":
+                if not Path(ROUTER_CONF_OUT).is_file() or not Path(REMOTE_CLIENT_CONF_OUT).is_file():
+                    set_session_flash(session_id, "Generate both VPN profiles before completing setup.", "", "error")
+                    self.send_redirect("/wizard")
+                    return
                 online, message = wizard_router_online()
                 if not online:
                     set_session_flash(session_id, message, "", "error")
@@ -6017,13 +6113,18 @@ create_remote_client() {
   init_defaults
   mkdir -p "${WG_DIR}"
   chmod 700 "${WG_DIR}"
+  if [[ -f "${WG_DIR}/remote_client_private.key" && -f "${WG_DIR}/remote_client_public.key" && -s "${REMOTE_CLIENT_CONF_OUT}" ]] &&
+     { ! systemctl is-active --quiet "wg-quick@${WG_NAME}" || wg show "${WG_NAME}" peers 2>/dev/null | grep -Fxq "$(cat "${WG_DIR}/remote_client_public.key")"; }; then
+    ok "Remote VPN client already available; existing keys and router tunnel unchanged."
+    return 0
+  fi
   if [[ ! -f "${WG_DIR}/remote_client_private.key" ]]; then
     umask 077
     wg genkey | tee "${WG_DIR}/remote_client_private.key" | wg pubkey > "${WG_DIR}/remote_client_public.key"
   fi
   write_wg_configs
   if systemctl is-active --quiet "wg-quick@${WG_NAME}"; then
-    systemctl restart "wg-quick@${WG_NAME}"
+    wg set "${WG_NAME}" peer "${REMOTE_CLIENT_PUB}" allowed-ips "${REMOTE_CLIENT_IP}/32"
   fi
   ok "Remote VPN client ready: ${REMOTE_CLIENT_IP}"
   ok "Config: ${REMOTE_CLIENT_CONF_OUT}"
@@ -6154,6 +6255,52 @@ apply_extra_pf_rules() {
   done
 }
 
+dmz_reserved_list() {
+  # Protect VPS listeners as well as the known management ports. Standard HAIBOX
+  # and Extra rules are placed ahead of the DMZ fallback in the same chain.
+  python3 - "${WG_PORT}" "${WEBUI_PORT}" <<'PYDMZ'
+import re, subprocess, sys
+ports = {('tcp', 22), ('tcp', int(sys.argv[2])), ('udp', int(sys.argv[1]))}
+result = subprocess.run(['ss', '-H', '-lntu'], capture_output=True, text=True, timeout=5, check=True)
+for line in result.stdout.splitlines():
+    fields = line.split()
+    if len(fields) < 5 or fields[0] not in ('tcp', 'udp'):
+        continue
+    address = fields[4]
+    if address.startswith(('127.', '[::1]:', '::1:')):
+        continue
+    match = re.search(r':([0-9]+)$', address)
+    if match:
+        ports.add((fields[0], int(match.group(1))))
+try:
+    sshd = subprocess.run(['/usr/sbin/sshd', '-T'], capture_output=True, text=True, timeout=5)
+    if sshd.returncode == 0:
+        for line in sshd.stdout.splitlines():
+            if line.startswith('port '):
+                ports.add(('tcp', int(line.split()[1])))
+except (OSError, subprocess.SubprocessError):
+    pass
+for proto, port in sorted(ports):
+    if 1 <= port <= 65535:
+        print(proto, port)
+PYDMZ
+}
+
+apply_dmz_rules() {
+  [[ -n "${DMZ_IP:-}" ]] || return 0
+  local reserved proto port
+  reserved="$(dmz_reserved_list)" || { err "Cannot inspect VPS service ports; DMZ was not enabled."; return 1; }
+  while read -r proto port; do
+    [[ -n "${proto}" && -n "${port}" ]] || continue
+    iptables -t nat -A "${TAG_CHAIN_NAT}" -i "${PUB_IFACE}" -d "${PUB_IP}" -p "${proto}" --dport "${port}" -j RETURN
+    iptables -t nat -A "${TAG_CHAIN_NAT}" -i "${WG_NAME}" -d "${PUB_IP}" -p "${proto}" --dport "${port}" -j RETURN
+  done <<< "${reserved}"
+  for proto in tcp udp; do
+    iptables -t nat -A "${TAG_CHAIN_NAT}" -i "${PUB_IFACE}" -d "${PUB_IP}" -p "${proto}" -j DNAT --to-destination "${DMZ_IP}"
+    iptables -t nat -A "${TAG_CHAIN_NAT}" -i "${WG_NAME}" -d "${PUB_IP}" -p "${proto}" -j DNAT --to-destination "${DMZ_IP}"
+  done
+}
+
 iptables_apply_rules() {
   [[ -n "${PUB_IFACE}" ]] || { err "Public iface is empty."; exit 1; }
   [[ -n "${PUB_IP}" ]] || { err "Public IPv4 is empty."; exit 1; }
@@ -6253,6 +6400,8 @@ EOF
 
   # User-defined extra rules from the Web UI.
   apply_extra_pf_rules
+  # Catch only ports still unclaimed by HAIBOX, Extra and VPS services.
+  apply_dmz_rules
 
   ok "iptables rules applied."
 }
@@ -6342,7 +6491,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.1 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.2 - System Health"
   echo "============================================================"
   echo
 
@@ -6759,7 +6908,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.1 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.2 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

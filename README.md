@@ -110,7 +110,9 @@ bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireg
 
 Development builds may change an active VPS configuration and should not be used as production releases. See [`DEVELOPMENT_BASELINE.md`](DEVELOPMENT_BASELINE.md) for engineering constraints and regression checks, and [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
-The current `6.6-dev.1` build adds a first-run setup wizard on clean installations. After replacing the initial password, enter the router LAN IP and choose a /16–/24 prefix. The wizard applies and persists the configuration, provides the router WireGuard profile as text, a `.conf` download and a QR code, and verifies active tunnel reachability before opening Overview. Refreshing the wizard starts again at the LAN screen with saved values. Existing applied installations continue directly to the dashboard.
+The current `6.6-dev.2` build adds a first-run setup wizard on clean installations. After replacing the initial password, enter the router LAN IP and choose a /16–/24 prefix. The wizard applies and persists the configuration, presents the router profile first and offers a separate support-client profile for Android, iOS and computers. Both profiles offer text, `.conf` and QR. The router check shows a green confirmation only after active tunnel reachability. Refreshing the wizard starts again at the LAN screen with saved values. Existing applied installations continue directly to the dashboard.
+
+In the development Configuration view, an optional DMZ IP receives public TCP and UDP ports left unclaimed by standard HAIBOX mappings, Extra rules and VPS services. The same precedence applies to WireGuard hairpin traffic. Keep the destination blank to disable DMZ.
 
 ## Releases and integrity
 
