@@ -4,7 +4,11 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-Next development target: to be defined.
+### Added in v6.6-dev.1
+
+- First-run browser wizard for router LAN, automatic Apply + Make Persistent, router WireGuard profile with copy/download/QR, and active tunnel verification before Overview.
+- Password replacement continues in the authenticated setup session. A refresh restarts the wizard display with saved values and reuses existing WireGuard keys and generated profile.
+- Existing installations with an applied configuration retain their dashboard without seeing the wizard.
 
 ## [6.5] — 2026-09-18
 

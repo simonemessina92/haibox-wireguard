@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.5
+# Version 6.6-dev.1
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,8 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.5 Golden adds a compact operational dashboard, safe browser refresh,
-# per-device traffic visibility and clearer configuration workflows.
+# Version 6.6-dev.1 adds a first-run setup wizard on top of the v6.5 Golden.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -415,7 +414,7 @@ install_deps() {
     PYTHON3_INSTALLED_BY_SCRIPT="Y"
   fi
   apt-get update -y
-  apt-get install -y wireguard wireguard-tools iptables iproute2 iputils-ping curl ca-certificates python3 openssl util-linux
+  apt-get install -y wireguard wireguard-tools iptables iproute2 iputils-ping curl ca-certificates python3 openssl util-linux qrencode
   save_state
   ok "Packages installed."
 }
@@ -542,8 +541,9 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.5"
-RELEASE_CHANNEL = "GOLDEN"
+SCRIPT_VERSION = "6.6-dev.1"
+RELEASE_CHANNEL = "DEVELOPMENT"
+WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
     "data:image/png;base64,"
     "iVBORw0KGgoAAAANSUhEUgAAFhYAAAe7CAYAAADi0l4NAAAACXBIWXMAAC4jAAAuIwF4pT92AAAgAElEQVR4nOzdy0HjyhaG0f/E"
@@ -2405,6 +2405,10 @@ def password_change_required() -> bool:
     return load_shell_kv(AUTH_FILE).get("WEBUI_FORCE_PASSWORD_CHANGE", "N").upper() == "Y"
 
 
+def wizard_pending() -> bool:
+    return Path(WIZARD_PENDING_FILE).exists()
+
+
 def write_auth(user: str, password: Optional[str] = None, force_password_change: Optional[bool] = None) -> None:
     auth = load_shell_kv(AUTH_FILE)
     if password:
@@ -3063,6 +3067,103 @@ def render_change_password_page(message: str = "", level: str = "info") -> str:
     <button type="submit">Save New Password</button>
   </form>
 </section></body></html>"""
+
+
+def wizard_network_values(router_ip: str, prefix: int, current: Dict[str, str]) -> Dict[str, str]:
+    router = ipaddress.IPv4Address(router_ip)
+    if router.is_multicast or router.is_loopback or router.is_unspecified:
+        raise ValueError("Enter a usable IPv4 address for the router LAN.")
+    if prefix not in range(16, 25):
+        raise ValueError("Choose a LAN prefix from /16 to /24. Smaller networks cannot hold the default HAIBOX device addresses.")
+    network = ipaddress.IPv4Network(f"{router}/{prefix}", strict=False)
+    if router in (network.network_address, network.broadcast_address):
+        raise ValueError("The router must have a usable host address in the chosen subnet.")
+    # Preserve the router's /24 block for the existing HAIBOX device defaults.
+    block = int(router) & 0xFFFFFF00
+    values = dict(current)
+    values["LAN_CIDR"] = str(network)
+    values["ROUTER_LAN_IP"] = str(router)
+    for key, offset in (("STREAMHUB_IP", 101), ("HSG_IP", 102),
+                        ("MAKITO_ENC_IP", 103), ("WINDOWS_ORCH_IP", 104),
+                        ("PROXMOX_IP", 250)):
+        values[key] = str(ipaddress.IPv4Address(block + offset))
+    if router_ip in (values[key] for key in ("STREAMHUB_IP", "HSG_IP", "MAKITO_ENC_IP", "WINDOWS_ORCH_IP", "PROXMOX_IP")):
+        raise ValueError("The router IP conflicts with a default HAIBOX device. Choose another router address or configure device IPs manually after setup.")
+    return values
+
+
+def wizard_router_online() -> Tuple[bool, str]:
+    state = applied_state()
+    if state is None:
+        return False, "Apply the LAN configuration first."
+    try:
+        result = subprocess.run(["wg", "show", "wg0", "dump"], capture_output=True,
+                                text=True, timeout=2, check=False)
+        if result.returncode != 0:
+            return False, "WireGuard is not running on the VPS."
+        peer_ip = state["WG_GL_IP"]
+        rows = [row.split("\t") for row in result.stdout.splitlines()[1:]]
+        peer = next((row for row in rows if len(row) >= 8 and peer_ip + "/32" in row[3].split(",")), None)
+        if peer is None:
+            return False, "The HAIBOX router peer is not configured on the VPS."
+        reachable, _ = _ping_target(peer_ip)
+        if not reachable:
+            return False, "The router tunnel IP is not responding. Check its WireGuard profile and retry."
+        handshake = int(peer[4])
+        if handshake <= 0 or time.time() - handshake > 180:
+            return False, "The router responded, but there is no recent WireGuard handshake. Retry shortly."
+        return True, "Router tunnel is connected and responding."
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return False, "The tunnel check failed. Retry or inspect the WireGuard service."
+
+
+def render_wizard(step: str = "network", message: str = "", level: str = "error") -> str:
+    state = merged_state()
+    current = applied_state()
+    profile_ready = current is not None and Path(ROUTER_CONF_OUT).is_file()
+    if step not in ("network", "profile", "verify") or (step != "network" and not profile_ready):
+        step = "network"
+    step_number = {"network": 1, "profile": 2, "verify": 3}[step]
+    status = f'<div class="notice {esc(level)}" role="alert">{esc(message)}</div>' if message else ""
+    prefix = state.get("LAN_CIDR", DEFAULTS["LAN_CIDR"]).split("/")[-1]
+    choices = "".join(f'<option value="{i}" {"selected" if prefix == str(i) else ""}>/{i}</option>' for i in range(16, 25))
+    if step == "network":
+        body = f"""<h1>Router LAN</h1><p>Enter the router LAN address and its subnet. The default HAIBOX devices use addresses .101–.104 and .250 in the router's /24 block.</p>
+        <form method="post" action="/wizard/network" id="wizard-form">
+          <label>Router LAN IP<input name="router_ip" inputmode="decimal" value="{esc(state['ROUTER_LAN_IP'])}" required></label>
+          <label>Subnet prefix<select name="prefix">{choices}</select></label>
+          <p class="hint">The tunnel uses a separate network. /25–/32 are unavailable here because the default HAIBOX device addresses must fit in the LAN.</p>
+          <div class="actions"><button type="submit">Apply and generate profile <span aria-hidden="true">→</span></button></div>
+        </form><p id="applying" class="hint" hidden>Applying network rules and saving them. This may take a moment…</p>"""
+    elif step == "profile":
+        body = f"""<h1>Connect your router</h1><p>Import this WireGuard profile into your router and enable the tunnel. The private key stays the same if you refresh this page.</p>
+        <div class="profile-actions"><button type="button" id="copy-profile">Copy profile</button><a href="/download-router-config">Download .conf</a></div>
+        <details><summary>Show WireGuard configuration</summary><pre id="router-profile">{esc(router_config_text())}</pre></details>
+        <div class="qr"><img src="/wizard/router-qr" alt="QR code for the WireGuard router profile"><p class="hint">The QR contains the private key. Show it only to someone who manages this router.</p></div>
+        <div class="actions"><a class="back" href="/wizard?step=network">Back</a><a class="next" href="/wizard?step=verify">Next <span aria-hidden="true">→</span></a></div>"""
+    else:
+        body = """<h1>Check the connection</h1><p>Make sure the router profile is enabled, then check that the VPS can reach its WireGuard tunnel address.</p>
+        <div class="connection-status" id="connection-status" role="status">Waiting to check the router…</div>
+        <div class="actions"><a class="back" href="/wizard?step=profile">Back</a><button type="button" id="retry-check">Check again</button>
+        <form method="post" action="/wizard/finish"><button id="finish-button" type="submit" disabled>Finish and open Overview</button></form></div>"""
+    return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>HAIBOX Initial Setup</title><style>
+    * {{box-sizing:border-box}} body {{min-height:100vh;margin:0;padding:24px;display:grid;place-items:center;background:radial-gradient(circle at 15% 5%,#10334a,#05090f 48%,#08111a);color:#f5fbff;font-family:Aptos,"Segoe UI",sans-serif}}
+    .card {{width:min(610px,100%);background:#0c121beF;border:1px solid #2b3c49;border-radius:22px;padding:clamp(22px,5vw,38px);box-shadow:0 22px 48px #0007}}
+    .brand {{display:flex;align-items:center;justify-content:space-between;gap:16px}} .brand img {{width:175px;max-width:55%;height:auto}} .brand span,.hint,p {{color:#9db3c1}}
+    h1 {{font-size:27px;margin:28px 0 8px}} p {{line-height:1.5}} .progress {{display:flex;gap:7px;margin-top:26px}} .progress i {{height:5px;flex:1;background:#1d3241;border-radius:8px}} .progress i.on {{background:#00a3e0}}
+    label {{display:grid;gap:7px;margin:18px 0;color:#a8c2d0;font-size:14px;font-weight:700}} input,select {{width:100%;padding:12px;border:1px solid #395063;border-radius:10px;background:#0b1823;color:white;font:inherit}}
+    button,.next,.profile-actions a {{border:0;border-radius:10px;background:#008fc9;color:#fff;text-decoration:none;padding:12px 17px;font:inherit;font-weight:700;cursor:pointer}} button:disabled {{opacity:.45;cursor:default}} .back {{color:#b0dcea;text-decoration:none;padding:12px}} .actions,.profile-actions {{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:24px}} .actions form {{margin:0}}
+    .profile-actions button {{background:#263d50}} details {{margin-top:18px}} summary {{cursor:pointer;color:#9fe2fc}} pre {{white-space:pre-wrap;overflow-wrap:anywhere;background:#07111a;border:1px solid #2b3c49;padding:14px;border-radius:12px;max-height:240px;overflow:auto}}
+    .qr img {{max-width:220px;display:block;margin:16px auto;background:#fff;padding:10px;border-radius:12px}} .qr p {{font-size:12px}} .notice {{padding:12px;border-radius:10px;background:#3a2630;color:#ffd4dc;margin-top:20px;white-space:pre-wrap}} .notice.ok {{background:#173e34;color:#b3f6dd}}
+    .connection-status {{padding:22px;border:1px solid #385366;border-radius:12px;margin-top:24px}} .checking::before {{content:"";display:inline-block;width:13px;height:13px;border:2px solid #00a3e0;border-top-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:10px}} @keyframes spin {{to {{transform:rotate(360deg)}}}}
+    </style></head><body><main class="card"><div class="brand"><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"><span>Initial setup · {step_number} of 3</span></div>
+    <div class="progress" aria-hidden="true">{''.join('<i class="on"></i>' if n <= step_number else '<i></i>' for n in (1,2,3))}</div>{status}{body}</main>
+    <script>
+    const form=document.getElementById('wizard-form');if(form)form.addEventListener('submit',()=>{{form.querySelector('button').disabled=true;document.getElementById('applying').hidden=false;}});
+    const copy=document.getElementById('copy-profile');if(copy)copy.addEventListener('click',async()=>{{try{{await navigator.clipboard.writeText(document.getElementById('router-profile').textContent);copy.textContent='Copied';}}catch(e){{copy.textContent='Copy failed';}}}});
+    const retry=document.getElementById('retry-check');if(retry){{const box=document.getElementById('connection-status'),finish=document.getElementById('finish-button');async function check(){{finish.disabled=true;retry.disabled=true;box.classList.add('checking');box.textContent='Checking WireGuard and router reachability…';const start=Date.now();let result;try{{const response=await fetch('/api/wizard-connection',{{cache:'no-store',credentials:'same-origin'}});result=await response.json();if(!response.ok)throw Error(result.message||'Check failed');}}catch(e){{result={{connected:false,message:'Cannot reach the VPS check. Retry.'}}}}await new Promise(resolve=>setTimeout(resolve,Math.max(0,5000-(Date.now()-start))));box.classList.remove('checking');box.textContent=result.message;finish.disabled=!result.connected;retry.disabled=false;}}retry.addEventListener('click',check);check();}}
+    </script></body></html>"""
 
 
 def render_logout_bootstrap() -> str:
@@ -5321,7 +5422,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.5"
+    server_version = "HAIBOX-WebUI/6.6-dev.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5358,6 +5459,15 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.end_headers()
         self.wfile.write(encoded)
+
+    def send_png(self, data: bytes) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
 
     def send_download(self, data: bytes, filename: str, content_type: str = "application/octet-stream") -> None:
         self.send_response(200)
@@ -5431,6 +5541,9 @@ class Handler(BaseHTTPRequestHandler):
             if password_change_required():
                 self.send_redirect("/change-password")
                 return
+            if wizard_pending():
+                self.send_redirect("/wizard")
+                return
             flash = pop_session_flash(session_id)
             flash_state = flash.get("state")
             page_state = flash_state if isinstance(flash_state, dict) else merged_state()
@@ -5446,6 +5559,36 @@ class Handler(BaseHTTPRequestHandler):
             return
         if password_change_required():
             self.send_redirect("/change-password")
+            return
+        if wizard_pending():
+            if path == "/wizard":
+                step = query.get("step", ["network"])[0]
+                flash = pop_session_flash(session_id)
+                self.send_html(render_wizard(step, str(flash.get("message", "")), str(flash.get("level", "error"))))
+                return
+            if path == "/api/wizard-connection":
+                online, message = wizard_router_online()
+                self.send_json({"connected": online, "message": message})
+                return
+            if path == "/wizard/router-qr":
+                if applied_state() is None or not Path(ROUTER_CONF_OUT).is_file():
+                    self.send_error(404, "Router profile has not been generated.")
+                    return
+                try:
+                    qr = subprocess.run(["qrencode", "-t", "PNG", "-o", "-"],
+                                        input=Path(ROUTER_CONF_OUT).read_bytes(), capture_output=True,
+                                        timeout=3, check=False)
+                    if qr.returncode == 0:
+                        self.send_png(qr.stdout)
+                    else:
+                        self.send_error(503, "QR generator unavailable; download the .conf profile.")
+                except (OSError, subprocess.SubprocessError):
+                    self.send_error(503, "QR generator unavailable; download the .conf profile.")
+                return
+            if path == "/download-router-config" and applied_state() is not None:
+                self.send_download(Path(ROUTER_CONF_OUT).read_bytes(), "haibox_router_wg.conf")
+                return
+            self.send_redirect("/wizard")
             return
         if path == "/api/dashboard-status":
             self.send_json(dashboard_status(applied_state()))
@@ -5563,16 +5706,56 @@ class Handler(BaseHTTPRequestHandler):
             if len(password) < 10:
                 self.send_html(render_change_password_page("Password must contain at least 10 characters.", "error"), 400)
                 return
-            write_auth(merged_state().get("WEBUI_USER", "admin"), password, False)
+            user = merged_state().get("WEBUI_USER", "admin")
+            write_auth(user, password, False)
             SESSIONS.clear()
+            new_session = create_session(user)
             self.send_redirect(
-                "/login?password_changed=1",
-                extra_headers=[("Set-Cookie", self.clear_session_cookie())],
+                "/wizard" if wizard_pending() else "/",
+                extra_headers=[("Set-Cookie", self.session_cookie(new_session))],
             )
             return
 
         if password_change_required():
             self.send_redirect("/change-password")
+            return
+
+        if wizard_pending():
+            if path == "/wizard/network":
+                current = merged_state()
+                try:
+                    router_ip = form.get("router_ip", [""])[0].strip()
+                    prefix = int(form.get("prefix", [""])[0])
+                    values = wizard_network_values(router_ip, prefix, current)
+                    validated, errors, _ = apply_form_values(
+                        {key: [value] for key, value in values.items() if key in STATE_KEYS}, current)
+                    if errors:
+                        raise ValueError("\n".join(errors))
+                    previously = applied_state()
+                    if (previously is None or any(previously.get(key) != validated.get(key)
+                                                  for key in ("LAN_CIDR", "ROUTER_LAN_IP", "PROXMOX_IP", "STREAMHUB_IP", "HSG_IP", "MAKITO_ENC_IP", "WINDOWS_ORCH_IP"))
+                            or not Path(ROUTER_CONF_OUT).is_file()):
+                        write_state(validated)
+                        rc, output = run_script("--web-apply")
+                        if rc != 0:
+                            write_state(current)
+                            detail = next((line.strip() for line in reversed(output.splitlines()) if line.strip()), "Check the VPS service journal.")
+                            raise ValueError("Apply and persistence failed. Previous settings restored. " + detail)
+                    self.send_redirect("/wizard?step=profile")
+                except ValueError as exc:
+                    set_session_flash(session_id, str(exc), "", "error")
+                    self.send_redirect("/wizard")
+                return
+            if path == "/wizard/finish":
+                online, message = wizard_router_online()
+                if not online:
+                    set_session_flash(session_id, message, "", "error")
+                    self.send_redirect("/wizard?step=verify")
+                    return
+                Path(WIZARD_PENDING_FILE).unlink()
+                self.send_redirect("/")
+                return
+            self.send_redirect("/wizard")
             return
 
         if path == "/apply":
@@ -6159,7 +6342,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.5 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.1 - System Health"
   echo "============================================================"
   echo
 
@@ -6346,7 +6529,7 @@ remove_all() {
   fi
 
   log "Deleting files..."
-  rm -f "${UNIT_FILE}" "${RULES_FILE}" "${SYSCTL_FILE}" "${STATE_FILE}" "${APPLIED_STATE_FILE}" "${WEBUI_SERVICE_FILE}" "${WEBUI_AUTH_FILE}"
+  rm -f "${UNIT_FILE}" "${RULES_FILE}" "${SYSCTL_FILE}" "${STATE_FILE}" "${APPLIED_STATE_FILE}" "${WEBUI_SERVICE_FILE}" "${WEBUI_AUTH_FILE}" /root/haibox_wizard_pending
   rm -f "${ROUTER_CONF_OUT}" "${REMOTE_CLIENT_CONF_OUT}" "${WG_CONF}" "${SCRIPT_INSTALL_PATH}"
   rm -f "${WG_DIR}/vps_private.key" "${WG_DIR}/vps_public.key" "${WG_DIR}/gl_private.key" "${WG_DIR}/gl_public.key" "${WG_DIR}/remote_client_private.key" "${WG_DIR}/remote_client_public.key"
   rm -f "${EULA_FLAG}" >/dev/null 2>&1 || true
@@ -6497,6 +6680,9 @@ install_workflow() {
   automatic_webui_setup
   install_deps
   save_state
+  if [[ ! -f "${APPLIED_STATE_FILE}" ]]; then
+    install -m 600 /dev/null /root/haibox_wizard_pending
+  fi
   prepare_host_firewall
   install_webui_stack
   print_webui_access
@@ -6573,7 +6759,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.5 (GOLDEN)"
+    echo "HAIBOX WireGuard v6.6-dev.1 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
