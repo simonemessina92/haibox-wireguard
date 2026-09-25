@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.5
+# Version 6.6-dev.6
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.5 refines the optional domain configuration and its controls.
+# Version 6.6-dev.6 keeps the first-run wizard steps at one height with internal scrolling.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -544,7 +544,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.5"
+SCRIPT_VERSION = "6.6-dev.6"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -3189,33 +3189,34 @@ def render_wizard(step: str = "network", message: str = "", level: str = "error"
           <label>Router LAN IP<input name="router_ip" inputmode="decimal" value="{esc(state['ROUTER_LAN_IP'])}" required></label>
           <label>Subnet prefix<select name="prefix">{choices}</select></label>
           <p class="hint">The tunnel uses a separate network. /25–/32 are unavailable here because the default HAIBOX device addresses must fit in the LAN.</p>
-          <div class="actions"><button type="submit">Apply and generate profile <span aria-hidden="true">→</span></button></div>
-        </form><p id="applying" class="hint" hidden>Applying network rules and saving them. This may take a moment…</p>"""
+        </form>"""
+        footer = '<div class="actions"><button type="submit" form="wizard-form">Apply and generate profile <span aria-hidden="true">→</span></button></div><p id="applying" class="hint" hidden>Applying network rules and saving them. This may take a moment…</p>'
     elif step == "profile":
         body = f"""<h1>WireGuard profiles</h1><p>First connect the HAIBOX router. The support client is available in the next tab if you need access from another device.</p>
         <div class="profile-switch" role="tablist" aria-label="VPN profiles"><button type="button" class="selected" data-profile-tab="router">HAIBOX Router</button><button type="button" data-profile-tab="client">Remote VPN Client</button></div>
         <section data-profile-panel="router"><p>Import this profile into your router and enable the tunnel. Its private key stays the same when you refresh.</p>
           <div class="profile-actions"><button type="button" data-copy-profile="router-profile">Copy profile</button><a href="/download-router-config">Download .conf</a></div>
           <details><summary>Show router configuration</summary><pre id="router-profile">{esc(router_config_text())}</pre></details>
-          <div class="qr"><img src="/wizard/router-qr" alt="QR code for the WireGuard router profile"><p class="hint">The QR contains the private key. Show it only to someone who manages this router.</p></div>
+          <details class="qr"><summary>Show router QR code</summary><img src="/wizard/router-qr" loading="lazy" alt="QR code for the WireGuard router profile"><p class="hint">The QR contains the private key. Show it only to someone who manages this router.</p></details>
         </section>
         <section data-profile-panel="client" hidden><p>Optional access for an Android or iOS phone, or a computer. Import this profile in the WireGuard app to reach the HAIBOX LAN for remote support. It does not route all of the device's Internet traffic through the VPS.</p>
           <div class="profile-actions"><button type="button" data-copy-profile="client-profile">Copy profile</button><a href="/download-remote-client">Download .conf</a></div>
           <details><summary>Show client configuration</summary><pre id="client-profile">{esc(remote_client_config_text())}</pre></details>
-          <div class="qr"><img src="/wizard/client-qr" alt="QR code for the remote VPN client profile"><p class="hint">The QR contains the private key. Keep it private.</p></div>
-        </section>
-        <div class="actions"><a class="back" href="/wizard?step=network">Back</a><a class="next" href="/wizard?step=verify">Next <span aria-hidden="true">→</span></a></div>"""
+          <details class="qr"><summary>Show client QR code</summary><img src="/wizard/client-qr" loading="lazy" alt="QR code for the remote VPN client profile"><p class="hint">The QR contains the private key. Keep it private.</p></details>
+        </section>"""
+        footer = '<div class="actions"><a class="back" href="/wizard?step=network">Back</a><a class="next" href="/wizard?step=verify">Next <span aria-hidden="true">→</span></a></div>'
     else:
         body = """<h1>Check the connection</h1><p>Make sure the router profile is enabled, then check that the VPS can reach its WireGuard tunnel address.</p>
-        <div class="connection-status" id="connection-status" role="status"><span class="connection-icon" aria-hidden="true"></span><span id="connection-message">Waiting to check the router…</span></div>
-        <div class="actions"><a class="back" href="/wizard?step=profile">Back</a><button type="button" id="retry-check">Check again</button>
-        <form method="post" action="/wizard/finish"><button id="finish-button" type="submit" disabled>Finish and open Overview</button></form></div>"""
+        <div class="connection-status" id="connection-status" role="status"><span class="connection-icon" aria-hidden="true"></span><span id="connection-message">Waiting to check the router…</span></div>"""
+        footer = '<div class="actions"><a class="back" href="/wizard?step=profile">Back</a><button type="button" id="retry-check">Check again</button><form method="post" action="/wizard/finish"><button id="finish-button" type="submit" disabled>Finish and open Overview</button></form></div>'
     return f"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
     <title>HAIBOX Initial Setup</title><style>
-    * {{box-sizing:border-box}} body {{min-height:100vh;margin:0;padding:24px;display:grid;place-items:center;background:radial-gradient(circle at 15% 5%,#10334a,#05090f 48%,#08111a);color:#f5fbff;font-family:Aptos,"Segoe UI",sans-serif}}
-    .card {{width:min(610px,100%);background:#0c121beF;border:1px solid #2b3c49;border-radius:22px;padding:clamp(22px,5vw,38px);box-shadow:0 22px 48px #0007}}
-    .brand {{display:flex;align-items:center;justify-content:space-between;gap:16px}} .brand img {{width:175px;max-width:55%;height:auto}} .brand span,.hint,p {{color:#9db3c1}}
-    h1 {{font-size:27px;margin:28px 0 8px}} p {{line-height:1.5}} .progress {{display:flex;gap:7px;margin-top:26px}} .progress i {{height:5px;flex:1;background:#1d3241;border-radius:8px}} .progress i.on {{background:#00a3e0}}
+    * {{box-sizing:border-box}} body {{height:100vh;height:100dvh;margin:0;padding:24px;display:flex;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(circle at 15% 5%,#10334a,#05090f 48%,#08111a);color:#f5fbff;font-family:Aptos,"Segoe UI",sans-serif}}
+    .card {{width:min(610px,100%);height:740px;max-height:100%;min-height:0;display:flex;flex-direction:column;background:#0c121beF;border:1px solid #2b3c49;border-radius:22px;padding:clamp(22px,5vw,38px);box-shadow:0 22px 48px #0007}}
+    .wizard-content {{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding-right:6px;scrollbar-color:#395063 transparent}}
+    .wizard-footer {{flex:none;padding-top:14px}} .wizard-footer .actions {{margin-top:0}}
+    .brand {{display:flex;flex:none;align-items:center;justify-content:space-between;gap:16px}} .brand img {{width:175px;max-width:55%;height:auto}} .brand span,.hint,p {{color:#9db3c1}}
+    h1 {{font-size:27px;margin:28px 0 8px}} p {{line-height:1.5}} .progress {{display:flex;flex:none;gap:7px;margin-top:26px}} .progress i {{height:5px;flex:1;background:#1d3241;border-radius:8px}} .progress i.on {{background:#00a3e0}}
     label {{display:grid;gap:7px;margin:18px 0;color:#a8c2d0;font-size:14px;font-weight:700}} input,select {{width:100%;padding:12px;border:1px solid #395063;border-radius:10px;background:#0b1823;color:white;font:inherit}}
     button,.next,.profile-actions a {{border:0;border-radius:10px;background:#008fc9;color:#fff;text-decoration:none;padding:12px 17px;font:inherit;font-weight:700;cursor:pointer}} button:disabled {{opacity:.45;cursor:default}} .back {{color:#b0dcea;text-decoration:none;padding:12px}} .actions,.profile-actions {{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:24px}} .actions form {{margin:0}}
     .profile-actions button {{background:#263d50}} details {{margin-top:18px}} summary {{cursor:pointer;color:#9fe2fc}} pre {{white-space:pre-wrap;overflow-wrap:anywhere;background:#07111a;border:1px solid #2b3c49;padding:14px;border-radius:12px;max-height:240px;overflow:auto}}
@@ -3225,10 +3226,11 @@ def render_wizard(step: str = "network", message: str = "", level: str = "error"
     .connection-status {{display:flex;align-items:center;gap:18px;min-height:110px}} .connection-icon {{display:grid;place-items:center;flex:none;width:52px;height:52px;border-radius:50%;border:3px solid #57738a;color:#fff;font-size:29px;font-weight:800}}
     .connection-status.checking::before {{content:none}} .checking .connection-icon {{border-color:#00a3e0;background:#00a3e022;animation:pulse 1.2s ease-in-out infinite}} .connected .connection-icon {{border-color:#39d98a;background:#1a8e58}} .connected .connection-icon::after {{content:"✓"}} .disconnected .connection-icon {{border-color:#df9363}}
     @keyframes pulse {{50% {{box-shadow:0 0 0 12px #00a3e025;opacity:.5}}}}
+    @media (max-width:600px), (max-height:650px) {{body {{padding:12px}} .card {{padding:20px}} .brand img {{width:135px}} h1 {{margin-top:18px}} .progress {{margin-top:18px}}}}
     </style></head><body><main class="card"><div class="brand"><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"><span>Initial setup · {step_number} of 3</span></div>
-    <div class="progress" aria-hidden="true">{''.join('<i class="on"></i>' if n <= step_number else '<i></i>' for n in (1,2,3))}</div>{status}{body}</main>
+    <div class="progress" aria-hidden="true">{''.join('<i class="on"></i>' if n <= step_number else '<i></i>' for n in (1,2,3))}</div><div class="wizard-content">{status}{body}</div><div class="wizard-footer">{footer}</div></main>
     <script>
-    const form=document.getElementById('wizard-form');if(form)form.addEventListener('submit',()=>{{form.querySelector('button').disabled=true;document.getElementById('applying').hidden=false;}});
+    const form=document.getElementById('wizard-form');if(form)form.addEventListener('submit',()=>{{document.querySelector('[form="wizard-form"]').disabled=true;document.getElementById('applying').hidden=false;}});
     document.querySelectorAll('[data-profile-tab]').forEach(button=>button.addEventListener('click',()=>{{document.querySelectorAll('[data-profile-tab]').forEach(tab=>tab.classList.toggle('selected',tab===button));document.querySelectorAll('[data-profile-panel]').forEach(panel=>panel.hidden=panel.dataset.profilePanel!==button.dataset.profileTab);}}));
     document.querySelectorAll('[data-copy-profile]').forEach(button=>button.addEventListener('click',async()=>{{try{{await navigator.clipboard.writeText(document.getElementById(button.dataset.copyProfile).textContent);button.textContent='Copied';}}catch(e){{button.textContent='Copy failed';}}}}));
     const retry=document.getElementById('retry-check');if(retry){{const box=document.getElementById('connection-status'),label=document.getElementById('connection-message'),finish=document.getElementById('finish-button');async function check(){{finish.disabled=true;retry.disabled=true;box.classList.remove('connected','disconnected');box.classList.add('checking');label.textContent='Checking WireGuard and router reachability…';const start=Date.now();let result;try{{const response=await fetch('/api/wizard-connection',{{cache:'no-store',credentials:'same-origin'}});result=await response.json();if(!response.ok)throw Error(result.message||'Check failed');}}catch(e){{result={{connected:false,message:'Cannot reach the VPS check. Retry.'}}}}await new Promise(resolve=>setTimeout(resolve,Math.max(0,5000-(Date.now()-start))));box.classList.remove('checking');box.classList.add(result.connected?'connected':'disconnected');label.textContent=result.message;finish.disabled=!result.connected;retry.disabled=false;}}retry.addEventListener('click',check);check();}}
@@ -5550,7 +5552,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.5"
+    server_version = "HAIBOX-WebUI/6.6-dev.6"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6583,7 +6585,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.5 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.6 - System Health"
   echo "============================================================"
   echo
 
@@ -7011,7 +7013,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.5 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.6 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
