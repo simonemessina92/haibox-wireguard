@@ -39,30 +39,45 @@ LATEST_TAG="$(
     head -n1
 )"
 
-if [[ -z "${LATEST_TAG}" ]]; then
-    echo "[ERR] Unable to determine the latest HAIBOX WireGuard release."
+if [[ ! "${LATEST_TAG}" =~ ^v[0-9]+[.][0-9]+([.][0-9]+)?$ ]]; then
+    echo "[ERR] Invalid latest HAIBOX WireGuard release tag."
     exit 1
 fi
 
 VERSION="${LATEST_TAG#v}"
 SCRIPT_NAME="haibox-wireguard_v${VERSION}.sh"
 DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_TAG}/${SCRIPT_NAME}"
+CHECKSUM_URL="${DOWNLOAD_URL}.sha256"
 
 echo "[INFO] Latest release: ${LATEST_TAG}"
 echo "[INFO] Downloading ${SCRIPT_NAME}..."
 
-TEMP_FILE="$(mktemp)"
+TEMP_DIR="$(mktemp -d)"
+trap 'rm -rf -- "${TEMP_DIR}"' EXIT
+TEMP_FILE="${TEMP_DIR}/${SCRIPT_NAME}"
+CHECKSUM_FILE="${TEMP_FILE}.sha256"
 
 if ! curl -fsSL "${DOWNLOAD_URL}" -o "${TEMP_FILE}"; then
     echo "[ERR] Unable to download ${SCRIPT_NAME}."
-    rm -f "${TEMP_FILE}"
+    exit 1
+fi
+
+if ! curl -fsSL "${CHECKSUM_URL}" -o "${CHECKSUM_FILE}"; then
+    echo "[ERR] Unable to download the release checksum."
+    exit 1
+fi
+
+read -r EXPECTED_SHA CHECKSUM_NAME < "${CHECKSUM_FILE}" || true
+if [[ ! "${EXPECTED_SHA:-}" =~ ^[[:xdigit:]]{64}$ || "${CHECKSUM_NAME:-}" != "${SCRIPT_NAME}" ]] ||
+   [[ "$(wc -l < "${CHECKSUM_FILE}")" -ne 1 ]] ||
+   ! (cd "${TEMP_DIR}" && sha256sum --check --status --strict "${SCRIPT_NAME}.sha256"); then
+    echo "[ERR] Release checksum verification failed; script was not installed."
     exit 1
 fi
 
 # Validate downloaded script before installation
 if ! bash -n "${TEMP_FILE}"; then
     echo "[ERR] Downloaded script failed syntax validation."
-    rm -f "${TEMP_FILE}"
     exit 1
 fi
 

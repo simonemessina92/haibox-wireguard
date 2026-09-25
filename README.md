@@ -82,7 +82,7 @@ Username: admin
 Password: password
 ```
 
-A new password is required before the control panel becomes available. The stable installer always downloads the script associated with the latest published Golden release; the matching checksum is available with the release assets.
+A new password is required before the control panel becomes available. The stable installer downloads the latest published Golden release and verifies its SHA-256 against the matching release checksum before installation.
 
 ## Default network layout
 

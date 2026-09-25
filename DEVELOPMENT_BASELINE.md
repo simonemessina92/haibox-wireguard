@@ -15,7 +15,7 @@ The current Golden release has:
 - Version header: `6.5`
 - SHA-256: `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a`
 
-The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.3.
+The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.5.
 
 ## 2. Supported platform and operating model
 
@@ -368,6 +368,7 @@ Complete this table only after physical regression testing. “Static pass” or
 |---|---|---|---|---|---|---|---|
 | v6.3 | `aa01be1c788310fd10675a437cf6efe442387e1a3dad21b8147b92bd783e35d2` | Previously completed | Recorded in project history | Recorded in project history | Simone Messina | **GOLDEN** | Immutable source baseline |
 | v6.4 | `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated first on Amsterdam test VPS, then installed on Italy production VPS |
+| v6.5 | `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated with live streaming, Remote VPN Client, dashboard and browser refresh on Amsterdam test VPS |
 
 ## 15. Definition of done for the next Golden
 
