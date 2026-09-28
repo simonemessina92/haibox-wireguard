@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.6
+# Version 6.6-dev.7
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.6 keeps the first-run wizard steps at one height with internal scrolling.
+# Version 6.6-dev.7 shows a real four-minute live traffic window in the browser.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -544,7 +544,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.6"
+SCRIPT_VERSION = "6.6-dev.7"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -4175,7 +4175,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                     </div>
                   </div>
                 </div>
-                <p class="dashboard-note">Status is sampled only while Overview is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
+                <p class="dashboard-note">Device status is sampled only while Overview is open and the page is visible. A device can be reported as Service Online when ICMP is blocked but a configured TCP service is reachable.</p>
               </section>
               <section class="config-block">
                 <div class="block-head">
@@ -4193,7 +4193,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <div class="network-legend">
                   <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
                   <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
-                  <span>60 second rolling window · Mbps</span>
+                  <span>Last 4 minutes · live samples · Mbps</span>
                 </div>
                 <div class="traffic-table" id="network-consumers">
                   <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
@@ -4201,7 +4201,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               </section>
               </div>
               <div class="overview-footer">
-                <span>Live data is sampled only while Overview is visible.</span>
+                <span>Traffic samples live while this page is open; browser pauses leave gaps.</span>
                 <details class="system-details">
                   <summary>System information</summary>
                   <div class="system-details-content">
@@ -4584,7 +4584,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         makito: "Makito X4E", windows: "Windows", proxmox: "Proxmox",
         other: "Other / VPN"
       }};
+      const networkWindowMs = 4 * 60 * 1000;
       let networkTimer = null;
+      let networkRequestActive = false;
       let previousNetworkSample = null;
       let networkSamples = [];
       let displayedYMax = 10;
@@ -4610,32 +4612,25 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function networkTabIsActive() {{
         const page = document.querySelector('[data-tab-page="overview"]');
-        return !!page && !page.hidden && document.visibilityState === "visible";
+        return !!page && !page.hidden;
       }}
 
-      function stopNetworkPolling() {{
-        if (networkTimer !== null) {{
-          window.clearInterval(networkTimer);
-          networkTimer = null;
-        }}
-        previousNetworkSample = null;
+      function pruneNetworkSamples(now) {{
+        while (networkSamples.length && networkSamples[0].time < now - networkWindowMs) networkSamples.shift();
       }}
 
       function updateNetworkPolling() {{
         if (!networkCanvas) return;
-        if (networkTabIsActive()) {{
-          if (networkTimer === null) {{
-            previousNetworkSample = null;
-            fetchNetworkSample();
-            networkTimer = window.setInterval(fetchNetworkSample, 1000);
-          }}
-        }} else {{
-          stopNetworkPolling();
+        if (networkTimer === null) {{
+          fetchNetworkSample();
+          networkTimer = window.setInterval(fetchNetworkSample, 1000);
         }}
+        if (networkTabIsActive()) drawNetworkChart();
       }}
 
       async function fetchNetworkSample() {{
-        if (!networkTabIsActive()) return;
+        if (networkRequestActive) return;
+        networkRequestActive = true;
         try {{
           const response = await fetch("/api/network-stats", {{ cache: "no-store", credentials: "same-origin" }});
           if (!response.ok) throw new Error("stats unavailable");
@@ -4644,13 +4639,15 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             previousNetworkSample = null;
             if (networkEmpty) networkEmpty.textContent = "wg0 is not available. Apply the configuration to start monitoring.";
             if (networkEmpty) networkEmpty.hidden = false;
-            drawNetworkChart();
+            if (networkTabIsActive()) drawNetworkChart();
             return;
           }}
           if (networkEmpty) networkEmpty.hidden = true;
           if (previousNetworkSample) {{
             const elapsed = (sample.timestamp - previousNetworkSample.timestamp) / 1000;
-            if (elapsed > 0) {{
+            // A delayed browser timer gives only an interval average, not an
+            // instantaneous rate. Leave that interval blank on the chart.
+            if (elapsed > 0 && elapsed <= 3) {{
               // Present traffic from the HAIBOX/device point of view. Bytes sent
               // by the VPS into wg0 are received by HAIBOX; bytes received by
               // the VPS from wg0 were transmitted by HAIBOX.
@@ -4668,26 +4665,34 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               const classifiedRx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.rx; }}, 0);
               const classifiedTx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.tx; }}, 0);
               deviceRates.other = {{ rx:Math.max(0, rx-classifiedRx), tx:Math.max(0, tx-classifiedTx) }};
-              networkSamples.push({{ rx: rx, tx: tx }});
-              if (networkSamples.length > 60) networkSamples.shift();
+              networkSamples.push({{ time: Date.now(), rx: rx, tx: tx }});
+              pruneNetworkSamples(Date.now());
               if (rxNow) rxNow.textContent = formatMbps(rx);
               if (txNow) txNow.textContent = formatMbps(tx);
               renderConsumers(deviceRates);
-              drawNetworkChart();
+            }} else {{
+              if (rxNow) rxNow.textContent = "—";
+              if (txNow) txNow.textContent = "—";
+              if (consumerList) consumerList.innerHTML = '<div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div><div class="traffic-row">Sampling paused…</div>';
             }}
           }}
           previousNetworkSample = sample;
+          if (networkTabIsActive()) drawNetworkChart();
         }} catch (err) {{
           previousNetworkSample = null;
           if (networkEmpty) {{
             networkEmpty.textContent = "Live network statistics are temporarily unavailable.";
             networkEmpty.hidden = false;
           }}
+        }} finally {{
+          networkRequestActive = false;
         }}
       }}
 
       function drawNetworkChart() {{
         if (!networkCanvas) return;
+        const chartNow = Date.now();
+        pruneNetworkSamples(chartNow);
         const rect = networkCanvas.getBoundingClientRect();
         if (rect.width < 10 || rect.height < 10) return;
         const dpr = Math.max(1, window.devicePixelRatio || 1);
@@ -4737,7 +4742,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
         // Fast attack, slow release: bursts expand the scale immediately, while
         // the graph returns gradually to its normal range after the burst leaves
-        // the 60-second rolling window. This avoids abrupt visual compression.
+        // the four-minute rolling window. This avoids abrupt visual compression.
         if (maxData > displayedYMax * 0.92 || targetYMax > displayedYMax) {{
           displayedYMax = Math.max(displayedYMax, targetYMax);
           scaleHoldUntil = nowMs + 8000;
@@ -4771,54 +4776,61 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
         ctx.fillStyle = 'rgba(164, 190, 208, 0.72)';
-        ctx.fillText('-60s', pad.left, pad.top + plotH + 10);
+        ctx.fillText('-4m', pad.left, pad.top + plotH + 10);
         ctx.textAlign = 'center';
-        ctx.fillText('-30s', pad.left + plotW / 2, pad.top + plotH + 10);
+        ctx.fillText('-2m', pad.left + plotW / 2, pad.top + plotH + 10);
         ctx.textAlign = 'right';
         ctx.fillText('Now', pad.left + plotW, pad.top + plotH + 10);
 
-        function pointFor(index, key) {{
-          const slot = Math.max(0, 60 - networkSamples.length + index);
-          const x = pad.left + plotW * slot / 59;
-          const y = pad.top + plotH * (1 - Math.min(yMax, networkSamples[index][key]) / yMax);
+        function pointFor(point, key) {{
+          const x = pad.left + plotW * Math.max(0, Math.min(1, (point.time - (chartNow - networkWindowMs)) / networkWindowMs));
+          const y = pad.top + plotH * (1 - Math.min(yMax, point[key]) / yMax);
           return {{ x: x, y: y }};
         }}
 
         function traceSeries(key, stroke, fillTop, fillBottom) {{
           if (!networkSamples.length) return;
-          const points = networkSamples.map(function(_, index) {{ return pointFor(index, key); }});
+          // Never join measurements across a pause in browser sampling.
+          const groups = [];
+          networkSamples.forEach(function(point, index) {{
+            if (!index || point.time - networkSamples[index - 1].time > 2500) groups.push([]);
+            groups[groups.length - 1].push(pointFor(point, key));
+          }});
           const gradient = ctx.createLinearGradient(0, pad.top, 0, pad.top + plotH);
           gradient.addColorStop(0, fillTop);
           gradient.addColorStop(1, fillBottom);
-          ctx.beginPath();
-          ctx.moveTo(points[0].x, pad.top + plotH);
-          ctx.lineTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) {{
-            const previous = points[i - 1];
-            const current = points[i];
-            const midX = (previous.x + current.x) / 2;
-            ctx.bezierCurveTo(midX, previous.y, midX, current.y, current.x, current.y);
-          }}
-          ctx.lineTo(points[points.length - 1].x, pad.top + plotH);
-          ctx.closePath();
-          ctx.fillStyle = gradient;
-          ctx.fill();
+          groups.forEach(function(points) {{
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, pad.top + plotH);
+            ctx.lineTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {{
+              const previous = points[i - 1];
+              const current = points[i];
+              const midX = (previous.x + current.x) / 2;
+              ctx.bezierCurveTo(midX, previous.y, midX, current.y, current.x, current.y);
+            }}
+            ctx.lineTo(points[points.length - 1].x, pad.top + plotH);
+            ctx.closePath();
+            ctx.fillStyle = gradient;
+            ctx.fill();
 
-          ctx.beginPath();
-          ctx.moveTo(points[0].x, points[0].y);
-          for (let i = 1; i < points.length; i++) {{
-            const previous = points[i - 1];
-            const current = points[i];
-            const midX = (previous.x + current.x) / 2;
-            ctx.bezierCurveTo(midX, previous.y, midX, current.y, current.x, current.y);
-          }}
-          ctx.strokeStyle = stroke;
-          ctx.lineWidth = 2.35;
-          ctx.lineJoin = 'round';
-          ctx.lineCap = 'round';
-          ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) {{
+              const previous = points[i - 1];
+              const current = points[i];
+              const midX = (previous.x + current.x) / 2;
+              ctx.bezierCurveTo(midX, previous.y, midX, current.y, current.x, current.y);
+            }}
+            ctx.strokeStyle = stroke;
+            ctx.lineWidth = 2.35;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.stroke();
+          }});
 
-          const last = points[points.length - 1];
+          const lastGroup = groups[groups.length - 1];
+          const last = lastGroup[lastGroup.length - 1];
           ctx.beginPath();
           ctx.arc(last.x, last.y, 3.2, 0, Math.PI * 2);
           ctx.fillStyle = stroke;
@@ -5552,7 +5564,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.6"
+    server_version = "HAIBOX-WebUI/6.6-dev.7"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6585,7 +6597,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.6 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.7 - System Health"
   echo "============================================================"
   echo
 
@@ -7013,7 +7025,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.6 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.7 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

@@ -4,6 +4,11 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Improved in v6.6-dev.7
+
+- Network Statistics uses a real four-minute rolling window of browser samples. While the Web UI remains open, samples continue across its sections and older points expire automatically.
+- The chart leaves a gap if the browser suspends polling; refresh or logout starts a fresh window. No traffic history is saved on the VPS.
+
 ### Improved in v6.6-dev.6
 
 - The three first-run wizard steps share one viewport-sized card. Profile details and QR codes open on demand, long content scrolls inside the card and navigation remains visible at the bottom.
