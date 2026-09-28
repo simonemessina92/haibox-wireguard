@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### v6.7-dev.1
+
+- Configuration has a Remove All section. Type `REMOVE` to schedule the existing uninstall routine from the Web UI; a ten-second notice appears before the service is removed.
+
 
 ## [6.6] — 2026-09-28
 

@@ -47,7 +47,7 @@ LAN values can be changed during setup or later in Configuration. The VPS must h
 
 ## Versions
 
-`main` contains the latest Golden release. Approved assets and checksums for v6.4, v6.5 and v6.6 remain in [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases); v6.3 and earlier assets remain there without checksums where none were published. `develop` is aligned with the current Golden until the next dev build begins.
+`main` contains the latest Golden release. Approved assets and checksums for v6.4, v6.5 and v6.6 remain in [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases); v6.3 and earlier assets remain there without checksums where none were published. `develop` contains the next build under test.
 
 Use a separate test VPS for development builds:
 

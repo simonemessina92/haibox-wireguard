@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # HAIBOX WireGuard
-# Version 6.6
+# Version 6.7-dev.1
 # Simone Messina
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -517,8 +517,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6"
-RELEASE_CHANNEL = "GOLDEN"
+SCRIPT_VERSION = "6.7-dev.1"
+RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -3238,6 +3238,19 @@ def render_logout_bootstrap() -> str:
 """
 
 
+def render_remove_pending() -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Removing HAIBOX WireGuard</title>
+<style>body{{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;box-sizing:border-box;background:radial-gradient(circle at 0 0,#17314b,#060b12 55%);color:#f5fbff;font:18px Aptos,Segoe UI,sans-serif}}main{{width:min(580px,100%);padding:36px;border:1px solid #30465d;border-radius:22px;background:#0e1320;box-sizing:border-box}}img{{width:180px;max-width:100%}}h1{{font-size:27px;margin:28px 0 16px}}p{{line-height:1.5;color:#a9c6dc}}strong{{color:#fff}}</style></head>
+<body><main><img src="{esc(LOGO_URL)}" alt="HAIVISION HAIBOX"><h1>Removing HAIBOX WireGuard</h1>
+<p>The VPS will remove the tunnel, forwarding rules, saved profiles and this Web UI in <strong id="seconds">10</strong> seconds. This page will then be unavailable.</p>
+<p>Check the result from your VPS console or SSH session.</p></main>
+<script>try{{window.sessionStorage.removeItem("{SESSION_STORAGE_KEY}");}}catch(e){{}}
+let remaining=10;const counter=document.getElementById('seconds');const timer=setInterval(()=>{{remaining--;counter.textContent=String(Math.max(0,remaining));if(remaining<=0)clearInterval(timer);}},1000);</script>
+</body></html>"""
+
+
 def _script_sha256() -> str:
     try:
         digest = hashlib.sha256()
@@ -4094,6 +4107,12 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
     .apply-progress[hidden] {{ display:none; }}
     .apply-spinner {{ width:22px;height:22px;flex:none;border:3px solid #24495b;border-top-color:#00a3e0;border-radius:50%;animation:apply-spin .8s linear infinite; }}
     @keyframes apply-spin {{ to {{ transform:rotate(360deg); }} }}
+    .remove-details {{ margin-top:28px;padding:16px 18px;border:1px solid #4b3540;border-radius:12px;background:#211820; }}
+    .remove-details summary {{ cursor:pointer;color:#ffb6be;font-weight:700; }}
+    .remove-details p {{ color:#cfb5bc;line-height:1.5; }}
+    .remove-details input {{ max-width:240px; }}
+    .remove-button {{ background:#a63248; }}
+    .remove-button:disabled {{ opacity:.45;cursor:not-allowed; }}
   </style>
 </head>
 <body>
@@ -4313,6 +4332,11 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             </div>
             <div class="footer-note">To change username or password, enter the current password. Leave all password fields empty to keep it unchanged.</div>
             </div>
+            <details class="remove-details"><summary>Remove All</summary>
+              <p>Delete HAIBOX WireGuard from this VPS, including its tunnel, keys, forwarding rules and Web UI. The connection will close. Type <strong>REMOVE</strong> to confirm.</p>
+              <label class="field"><span>Confirmation</span><input id="remove-confirmation" form="remove-form" name="confirmation" type="text" pattern="REMOVE" required autocomplete="off" spellcheck="false" placeholder="REMOVE"></label>
+              <div class="actions"><button class="remove-button" id="remove-button" form="remove-form" type="submit" disabled>Remove HAIBOX WireGuard</button></div>
+            </details>
             </div>
 
             <div class="tab-page" data-tab-page="profiles" hidden>
@@ -4346,6 +4370,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             </div>
           </form>
           <form id="public-domain-form" method="post" action="/public-domain"></form>
+          <form id="remove-form" method="post" action="/remove-all"></form>
         </div>
       </section>
 
@@ -4415,6 +4440,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
   <script>
     (function() {{
       const controlForm = document.getElementById("control-form");
+      const removeConfirmation = document.getElementById("remove-confirmation");
+      const removeButton = document.getElementById("remove-button");
+      if (removeConfirmation && removeButton) removeConfirmation.addEventListener("input", function() {{ removeButton.disabled = removeConfirmation.value !== "REMOVE"; }});
       if (controlForm) controlForm.addEventListener("submit", function(event) {{
         if (!event.submitter || event.submitter.id !== "apply-button") return;
         const progress = document.getElementById("apply-progress");
@@ -4946,6 +4974,15 @@ def schedule_restart() -> None:
         stderr=subprocess.DEVNULL,
         start_new_session=True,
     )
+
+
+def schedule_remove_all() -> None:
+    result = subprocess.run(
+        ["systemd-run", "--unit=haibox-remove-all", "--on-active=10s", "--timer-property=AccuracySec=1s", "--collect", SCRIPT_PATH, "--web-remove"],
+        capture_output=True, text=True, timeout=8, check=False,
+    )
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or "Could not schedule Remove All.")
 
 
 def safe_int(value: str) -> Optional[int]:
@@ -5960,6 +5997,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_redirect("/wizard")
             return
 
+        if path == "/remove-all":
+            if form.get("confirmation", [""])[0] != "REMOVE":
+                set_session_flash(session_id, "Type REMOVE to confirm deletion.", "", "error")
+                self.send_redirect("/")
+                return
+            try:
+                schedule_remove_all()
+            except (OSError, subprocess.SubprocessError) as exc:
+                set_session_flash(session_id, "Remove All could not be scheduled: " + str(exc), "", "error")
+                self.send_redirect("/")
+                return
+            SESSIONS.clear()
+            self.send_html(render_remove_pending(), extra_headers=[("Set-Cookie", self.clear_session_cookie())])
+            return
+
         if path == "/public-domain":
             operation = form.get("operation", [""])[0]
             try:
@@ -6637,7 +6689,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6 - System Health"
+  echo " HAIBOX WireGuard v6.7-dev.1 - System Health"
   echo "============================================================"
   echo
 
@@ -6797,8 +6849,10 @@ system_health() {
 
 remove_all() {
   warn "REMOVE ALL will delete WireGuard configs, keys, systemd units, sysctl, rules, and generated files."
-  read -r -p "Type YES to continue: " a
-  [[ "${a}" == "YES" ]] || { warn "Cancelled."; return; }
+  if [[ "${1:-}" != "web-confirmed" ]]; then
+    read -r -p "Type YES to continue: " a
+    [[ "${a}" == "YES" ]] || { warn "Cancelled."; return; }
+  fi
 
   load_state
   load_webui_auth
@@ -7052,6 +7106,9 @@ run_noninteractive_command() {
     --reset-webui-credentials)
       reset_webui_credentials
       ;;
+    --web-remove)
+      remove_all web-confirmed
+      ;;
     *)
       return 1
       ;;
@@ -7065,7 +7122,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6 (GOLDEN)"
+    echo "HAIBOX WireGuard v6.7-dev.1 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
