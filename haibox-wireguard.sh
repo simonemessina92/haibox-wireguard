@@ -2456,6 +2456,7 @@ def create_session(user: str) -> str:
     SESSIONS[session_id] = {
         "user": user,
         "expires": time.time() + SESSION_TTL_SECONDS,
+        "started_ms": int(time.time() * 1000),
     }
     return session_id
 
@@ -5573,6 +5574,24 @@ def sample_network_history() -> None:
         time.sleep(max(0.1, 1 - (time.monotonic() - started)))
 
 
+def network_history_for_session(session_id: str, now: int) -> Dict[str, object]:
+    session = SESSIONS.get(session_id)
+    if session is None:
+        return {"timestamp": now, "samples": [], "latest": None}
+    cutoff = max(now - NETWORK_WINDOW_MS, int(session["started_ms"]))
+    with NETWORK_HISTORY_LOCK:
+        samples = [
+            {"time": item["time"], "rx": item["rx"], "tx": item["tx"]}
+            for item in NETWORK_HISTORY if item["time"] >= cutoff
+        ]
+        latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
+    return {
+        "timestamp": now,
+        "samples": samples,
+        "latest": latest if latest and latest["time"] >= max(cutoff, now - 3000) else None,
+    }
+
+
 REQUEST_LOCK = threading.Lock()
 
 
@@ -5759,17 +5778,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/network-history":
             now = int(time.time() * 1000)
-            with NETWORK_HISTORY_LOCK:
-                samples = [
-                    {"time": item["time"], "rx": item["rx"], "tx": item["tx"]}
-                    for item in NETWORK_HISTORY if item["time"] >= now - NETWORK_WINDOW_MS
-                ]
-                latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
             self.send_json({
                 "available": Path("/sys/class/net/wg0/statistics/rx_bytes").exists(),
-                "timestamp": now,
-                "samples": samples,
-                "latest": latest if latest and latest["time"] >= now - 3000 else None,
+                **network_history_for_session(session_id, now),
             })
             return
         if path == "/api/network-stats":

@@ -4,7 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+
 ## [6.6] — 2026-09-28
+
+- Fixed the Network Statistics graph retaining old samples after logout and login when another Web UI session was still active.
 
 ### Added
 

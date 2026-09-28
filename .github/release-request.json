@@ -1,5 +1,8 @@
 {
   "version": "6.6",
   "title": "HAIBOX WireGuard v6.6 — Golden",
-  "notes_file": "releases/v6.6.md"
+  "notes_file": "releases/v6.6.md",
+  "repair_existing": true,
+  "expected_tag_sha": "6dca33011d47acf97a73b80a33d51564e5cfca8d",
+  "expected_asset_sha256": "c7771e8bdc50c3c08b6c067a97ff1d6d49f06d2cb43c3a8ceae26df2a622cc6f"
 }

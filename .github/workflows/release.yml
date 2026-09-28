@@ -25,6 +25,8 @@ jobs:
 
       - name: Validate release request and source
         id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
@@ -33,6 +35,7 @@ jobs:
           VERSION="$(jq -er '.version' "${REQUEST}")"
           TITLE="$(jq -er '.title' "${REQUEST}")"
           NOTES_FILE="$(jq -er '.notes_file' "${REQUEST}")"
+          REPAIR="$(jq -r '.repair_existing // false' "${REQUEST}")"
 
           if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+([.][0-9]+)?$ ]]; then
             echo "Invalid release version: ${VERSION}" >&2
@@ -51,7 +54,20 @@ jobs:
             exit 1
           }
 
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+          if [[ "${REPAIR}" == true ]]; then
+            [[ "${VERSION}" == "6.6" ]] || { echo "Repair is restricted to v6.6." >&2; exit 1; }
+            EXPECTED_TAG="$(jq -er '.expected_tag_sha' "${REQUEST}")"
+            EXPECTED_ASSET="$(jq -er '.expected_asset_sha256' "${REQUEST}")"
+            [[ "$(git rev-parse "refs/tags/${TAG}")" == "${EXPECTED_TAG}" ]] || {
+              echo "Existing tag changed; refusing repair." >&2; exit 1;
+            }
+            gh release view "${TAG}" >/dev/null
+            mkdir -p "${RUNNER_TEMP}/previous-release"
+            gh release download "${TAG}" -p "${ASSET}" -D "${RUNNER_TEMP}/previous-release"
+            [[ "$(sha256sum "${RUNNER_TEMP}/previous-release/${ASSET}" | cut -d' ' -f1)" == "${EXPECTED_ASSET}" ]] || {
+              echo "Existing asset changed; refusing repair." >&2; exit 1;
+            }
+          elif git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "Tag ${TAG} already exists; refusing to overwrite it." >&2
             exit 1
           fi
@@ -64,8 +80,10 @@ jobs:
           echo "notes_file=${NOTES_FILE}" >> "${GITHUB_OUTPUT}"
           echo "asset=${ASSET}" >> "${GITHUB_OUTPUT}"
           echo "checksum=${CHECKSUM}" >> "${GITHUB_OUTPUT}"
+          echo "repair=${REPAIR}" >> "${GITHUB_OUTPUT}"
 
       - name: Create tag, GitHub Release, script, and checksum
+        if: steps.release.outputs.repair != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -80,3 +98,23 @@ jobs:
             --target "${GITHUB_SHA}" \
             --title "${TITLE}" \
             --notes-file "${NOTES_FILE}"
+
+      - name: Replace corrected v6.6 assets and move tag
+        if: steps.release.outputs.repair == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          ASSET: ${{ steps.release.outputs.asset }}
+          CHECKSUM: ${{ steps.release.outputs.checksum }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "${TAG}" "${ASSET}" "${CHECKSUM}" --clobber
+          mkdir -p "${RUNNER_TEMP}/verified-release"
+          gh release download "${TAG}" -p "${ASSET}" -p "${CHECKSUM}" -D "${RUNNER_TEMP}/verified-release"
+          cmp "${ASSET}" "${RUNNER_TEMP}/verified-release/${ASSET}"
+          cmp "${CHECKSUM}" "${RUNNER_TEMP}/verified-release/${CHECKSUM}"
+          (cd "${RUNNER_TEMP}/verified-release" && sha256sum -c "${CHECKSUM}")
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/git/refs/tags/${TAG}" \
+            -f sha="${GITHUB_SHA}" -F force=true >/dev/null
+          [[ "$(git ls-remote origin "refs/tags/${TAG}" | cut -f1)" == "${GITHUB_SHA}" ]]
