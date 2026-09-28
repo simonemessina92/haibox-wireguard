@@ -6,8 +6,6 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [6.6] — 2026-09-28
 
-Golden release approved after testing the wizard, router VPN, streaming and four-minute traffic view on the Amsterdam test VPS.
-
 ### Added
 
 - First-run wizard after the mandatory password change: router LAN setup, automatic Apply and persistence, router profile and active tunnel check.
