@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.8
+# Version 6.6-dev.9
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.8 keeps a bounded four-minute traffic window while signed in.
+# Version 6.6-dev.9 refreshes the chart from the complete four-minute server window.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -545,7 +545,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.8"
+SCRIPT_VERSION = "6.6-dev.9"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -4644,8 +4644,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
         if (networkRequestActive) return;
         networkRequestActive = true;
         try {{
-          const since = networkSamples.length ? networkSamples[networkSamples.length - 1].time : 0;
-          const response = await fetch("/api/network-history?since=" + since, {{ cache: "no-store", credentials: "same-origin" }});
+          const response = await fetch("/api/network-history", {{ cache: "no-store", credentials: "same-origin" }});
           if (!response.ok) throw new Error("stats unavailable");
           const payload = await response.json();
           networkServerOffsetMs = payload.timestamp - Date.now();
@@ -4659,9 +4658,9 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
             return;
           }}
           if (networkEmpty) networkEmpty.hidden = true;
-          (payload.samples || []).forEach(function(point) {{
-            if (!networkSamples.length || point.time > networkSamples[networkSamples.length - 1].time) networkSamples.push(point);
-          }});
+          // Use the complete server window on every visit. Browser timers can
+          // pause in a background tab, but the VPS continues sampling.
+          networkSamples = Array.isArray(payload.samples) ? payload.samples : [];
           pruneNetworkSamples(payload.timestamp);
           if (payload.latest) {{
             if (rxNow) rxNow.textContent = formatMbps(payload.latest.rx);
@@ -5606,7 +5605,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.8"
+    server_version = "HAIBOX-WebUI/6.6-dev.9"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5787,13 +5786,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(dashboard_status(applied_state()))
             return
         if path == "/api/network-history":
-            try:
-                since = max(0, int(query.get("since", ["0"])[0]))
-            except (ValueError, TypeError):
-                since = 0
             now = int(time.time() * 1000)
             with NETWORK_HISTORY_LOCK:
-                samples = [item for item in NETWORK_HISTORY if item["time"] > since and item["time"] >= now - NETWORK_WINDOW_MS]
+                samples = [
+                    {"time": item["time"], "rx": item["rx"], "tx": item["tx"]}
+                    for item in NETWORK_HISTORY if item["time"] >= now - NETWORK_WINDOW_MS
+                ]
                 latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
             self.send_json({
                 "available": Path("/sys/class/net/wg0/statistics/rx_bytes").exists(),
@@ -6656,7 +6654,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.8 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.9 - System Health"
   echo "============================================================"
   echo
 
@@ -7084,7 +7082,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.8 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.9 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

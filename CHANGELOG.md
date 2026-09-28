@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Fixed in v6.6-dev.9
+
+- Overview reloads the complete four-minute VPS traffic window when the browser returns from a background tab, rather than trying to merge missed samples into its old local chart. Each reply contains only timestamp and RX/TX for historical points; per-device rates remain available for the latest point.
+
 ### Improved in v6.6-dev.8
 
 - The Web UI service retains only the last four minutes of WireGuard traffic samples in RAM while an authenticated session exists. Overview retrieves the missing points after a browser tab is backgrounded; the last logout clears the window.
