@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.7
+# Version 6.6-dev.8
 # ==============================================================================
 #
 # VPS-side deployment and management utility for a HAIBOX WireGuard environment.
@@ -30,7 +30,7 @@ set -euo pipefail
 # Project: HAIBOX WireGuard
 # Author:  Simone Messina
 #
-# Version 6.6-dev.7 shows a real four-minute live traffic window in the browser.
+# Version 6.6-dev.8 keeps a bounded four-minute traffic window while signed in.
 # ==============================================================================
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -528,6 +528,7 @@ import tarfile
 import time
 import tempfile
 import threading
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -544,7 +545,7 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.7"
+SCRIPT_VERSION = "6.6-dev.8"
 RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
@@ -2342,6 +2343,9 @@ SESSION_COOKIE_NAME = "haibox_session"
 SESSION_STORAGE_KEY = "haibox_ui_tab"
 SESSION_TTL_SECONDS = 8 * 60 * 60
 SESSIONS: Dict[str, Dict[str, object]] = {}
+NETWORK_WINDOW_MS = 4 * 60 * 1000
+NETWORK_HISTORY = deque(maxlen=240)
+NETWORK_HISTORY_LOCK = threading.Lock()
 
 
 def load_shell_kv(path: str) -> Dict[str, str]:
@@ -2536,6 +2540,9 @@ def get_active_session_id(cookie_header: Optional[str]) -> Optional[str]:
 def destroy_session(session_id: Optional[str]) -> None:
     if session_id:
         SESSIONS.pop(session_id, None)
+    if not SESSIONS:
+        with NETWORK_HISTORY_LOCK:
+            NETWORK_HISTORY.clear()
 
 
 def esc(value: object) -> str:
@@ -4193,7 +4200,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
                 <div class="network-legend">
                   <span class="legend-item"><span class="legend-dot rx"></span>Total RX</span>
                   <span class="legend-item"><span class="legend-dot tx"></span>Total TX</span>
-                  <span>Last 4 minutes · live samples · Mbps</span>
+                  <span>Last 4 minutes · Mbps</span>
                 </div>
                 <div class="traffic-table" id="network-consumers">
                   <div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div>
@@ -4201,7 +4208,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
               </section>
               </div>
               <div class="overview-footer">
-                <span>Traffic samples live while this page is open; browser pauses leave gaps.</span>
+                <span>Traffic history covers the last four minutes while signed in.</span>
                 <details class="system-details">
                   <summary>System information</summary>
                   <div class="system-details-content">
@@ -4587,7 +4594,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
       const networkWindowMs = 4 * 60 * 1000;
       let networkTimer = null;
       let networkRequestActive = false;
-      let previousNetworkSample = null;
+      let networkServerOffsetMs = 0;
       let networkSamples = [];
       let displayedYMax = 10;
       let scaleHoldUntil = 0;
@@ -4612,7 +4619,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function networkTabIsActive() {{
         const page = document.querySelector('[data-tab-page="overview"]');
-        return !!page && !page.hidden;
+        return !!page && !page.hidden && document.visibilityState === "visible";
       }}
 
       function pruneNetworkSamples(now) {{
@@ -4621,65 +4628,51 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function updateNetworkPolling() {{
         if (!networkCanvas) return;
-        if (networkTimer === null) {{
-          fetchNetworkSample();
-          networkTimer = window.setInterval(fetchNetworkSample, 1000);
+        if (networkTabIsActive()) {{
+          if (networkTimer === null) {{
+            fetchNetworkSample();
+            networkTimer = window.setInterval(fetchNetworkSample, 1000);
+          }}
+          drawNetworkChart();
+        }} else if (networkTimer !== null) {{
+          window.clearInterval(networkTimer);
+          networkTimer = null;
         }}
-        if (networkTabIsActive()) drawNetworkChart();
       }}
 
       async function fetchNetworkSample() {{
         if (networkRequestActive) return;
         networkRequestActive = true;
         try {{
-          const response = await fetch("/api/network-stats", {{ cache: "no-store", credentials: "same-origin" }});
+          const since = networkSamples.length ? networkSamples[networkSamples.length - 1].time : 0;
+          const response = await fetch("/api/network-history?since=" + since, {{ cache: "no-store", credentials: "same-origin" }});
           if (!response.ok) throw new Error("stats unavailable");
-          const sample = await response.json();
-          if (!sample.available) {{
-            previousNetworkSample = null;
+          const payload = await response.json();
+          networkServerOffsetMs = payload.timestamp - Date.now();
+          if (!payload.available) {{
+            networkSamples = [];
             if (networkEmpty) networkEmpty.textContent = "wg0 is not available. Apply the configuration to start monitoring.";
             if (networkEmpty) networkEmpty.hidden = false;
-            if (networkTabIsActive()) drawNetworkChart();
+            if (rxNow) rxNow.textContent = "—";
+            if (txNow) txNow.textContent = "—";
+            drawNetworkChart();
             return;
           }}
           if (networkEmpty) networkEmpty.hidden = true;
-          if (previousNetworkSample) {{
-            const elapsed = (sample.timestamp - previousNetworkSample.timestamp) / 1000;
-            // A delayed browser timer gives only an interval average, not an
-            // instantaneous rate. Leave that interval blank on the chart.
-            if (elapsed > 0 && elapsed <= 3) {{
-              // Present traffic from the HAIBOX/device point of view. Bytes sent
-              // by the VPS into wg0 are received by HAIBOX; bytes received by
-              // the VPS from wg0 were transmitted by HAIBOX.
-              const rx = Math.max(0, (sample.tx_bytes - previousNetworkSample.tx_bytes) * 8 / elapsed / 1000000);
-              const tx = Math.max(0, (sample.rx_bytes - previousNetworkSample.rx_bytes) * 8 / elapsed / 1000000);
-              const deviceRates = {{}};
-              Object.keys(deviceMeta).filter(function(key) {{ return key !== "other"; }}).forEach(function(key) {{
-                const current = (sample.devices || {{}})[key] || {{}};
-                const previous = (previousNetworkSample.devices || {{}})[key] || {{}};
-                deviceRates[key] = {{
-                  rx: Math.max(0, Number(current.tx_bytes || 0) - Number(previous.tx_bytes || 0)) * 8 / elapsed / 1000000,
-                  tx: Math.max(0, Number(current.rx_bytes || 0) - Number(previous.rx_bytes || 0)) * 8 / elapsed / 1000000
-                }};
-              }});
-              const classifiedRx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.rx; }}, 0);
-              const classifiedTx = Object.values(deviceRates).reduce(function(sum, value) {{ return sum + value.tx; }}, 0);
-              deviceRates.other = {{ rx:Math.max(0, rx-classifiedRx), tx:Math.max(0, tx-classifiedTx) }};
-              networkSamples.push({{ time: Date.now(), rx: rx, tx: tx }});
-              pruneNetworkSamples(Date.now());
-              if (rxNow) rxNow.textContent = formatMbps(rx);
-              if (txNow) txNow.textContent = formatMbps(tx);
-              renderConsumers(deviceRates);
-            }} else {{
-              if (rxNow) rxNow.textContent = "—";
-              if (txNow) txNow.textContent = "—";
-              if (consumerList) consumerList.innerHTML = '<div class="traffic-row header"><span>Device</span><span class="traffic-value">RX</span><span class="traffic-value">TX</span></div><div class="traffic-row">Sampling paused…</div>';
-            }}
+          (payload.samples || []).forEach(function(point) {{
+            if (!networkSamples.length || point.time > networkSamples[networkSamples.length - 1].time) networkSamples.push(point);
+          }});
+          pruneNetworkSamples(payload.timestamp);
+          if (payload.latest) {{
+            if (rxNow) rxNow.textContent = formatMbps(payload.latest.rx);
+            if (txNow) txNow.textContent = formatMbps(payload.latest.tx);
+            renderConsumers(payload.latest.devices || {{}});
+          }} else {{
+            if (rxNow) rxNow.textContent = "—";
+            if (txNow) txNow.textContent = "—";
           }}
-          previousNetworkSample = sample;
           if (networkTabIsActive()) drawNetworkChart();
         }} catch (err) {{
-          previousNetworkSample = null;
           if (networkEmpty) {{
             networkEmpty.textContent = "Live network statistics are temporarily unavailable.";
             networkEmpty.hidden = false;
@@ -4691,7 +4684,7 @@ def render_page(state: Dict[str, str], message: str = "", output: str = "", leve
 
       function drawNetworkChart() {{
         if (!networkCanvas) return;
-        const chartNow = Date.now();
+        const chartNow = Date.now() + networkServerOffsetMs;
         pruneNetworkSamples(chartNow);
         const rect = networkCanvas.getBoundingClientRect();
         if (rect.width < 10 || rect.height < 10) return;
@@ -5560,11 +5553,60 @@ def device_traffic_counters() -> Dict[str, Dict[str, int]]:
     return counters
 
 
+def sample_network_history() -> None:
+    """Keep only four minutes of traffic rates while a Web UI session exists."""
+    stats_dir = Path("/sys/class/net/wg0/statistics")
+    previous = None
+    while True:
+        started = time.monotonic()
+        prune_sessions()
+        if not SESSIONS:
+            previous = None
+            with NETWORK_HISTORY_LOCK:
+                NETWORK_HISTORY.clear()
+        else:
+            try:
+                rx_bytes = int((stats_dir / "rx_bytes").read_text(encoding="ascii").strip())
+                tx_bytes = int((stats_dir / "tx_bytes").read_text(encoding="ascii").strip())
+                devices = device_traffic_counters()
+                now = int(time.time() * 1000)
+                current = (time.monotonic(), rx_bytes, tx_bytes, devices)
+                if previous:
+                    elapsed = current[0] - previous[0]
+                    if 0 < elapsed <= 3 and rx_bytes >= previous[1] and tx_bytes >= previous[2]:
+                        # The Web UI displays traffic from the HAIBOX side of wg0.
+                        rx = (tx_bytes - previous[2]) * 8 / elapsed / 1000000
+                        tx = (rx_bytes - previous[1]) * 8 / elapsed / 1000000
+                        rates = {}
+                        for name in ("router", "streamhub", "hsg", "makito", "windows", "proxmox"):
+                            current_device = devices.get(name, {})
+                            previous_device = previous[3].get(name, {})
+                            rates[name] = {
+                                "rx": max(0, current_device.get("tx_bytes", 0) - previous_device.get("tx_bytes", 0)) * 8 / elapsed / 1000000,
+                                "tx": max(0, current_device.get("rx_bytes", 0) - previous_device.get("rx_bytes", 0)) * 8 / elapsed / 1000000,
+                            }
+                        rates["other"] = {
+                            "rx": max(0, rx - sum(item["rx"] for item in rates.values())),
+                            "tx": max(0, tx - sum(item["tx"] for item in rates.values())),
+                        }
+                        if SESSIONS:
+                            with NETWORK_HISTORY_LOCK:
+                                NETWORK_HISTORY.append({"time": now, "rx": rx, "tx": tx, "devices": rates})
+                                while NETWORK_HISTORY and NETWORK_HISTORY[0]["time"] < now - NETWORK_WINDOW_MS:
+                                    NETWORK_HISTORY.popleft()
+                previous = current
+            except (OSError, ValueError):
+                previous = None
+                with NETWORK_HISTORY_LOCK:
+                    NETWORK_HISTORY.clear()
+        time.sleep(max(0.1, 1 - (time.monotonic() - started)))
+
+
 REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.7"
+    server_version = "HAIBOX-WebUI/6.6-dev.8"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -5743,6 +5785,22 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/dashboard-status":
             self.send_json(dashboard_status(applied_state()))
+            return
+        if path == "/api/network-history":
+            try:
+                since = max(0, int(query.get("since", ["0"])[0]))
+            except (ValueError, TypeError):
+                since = 0
+            now = int(time.time() * 1000)
+            with NETWORK_HISTORY_LOCK:
+                samples = [item for item in NETWORK_HISTORY if item["time"] > since and item["time"] >= now - NETWORK_WINDOW_MS]
+                latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
+            self.send_json({
+                "available": Path("/sys/class/net/wg0/statistics/rx_bytes").exists(),
+                "timestamp": now,
+                "samples": samples,
+                "latest": latest if latest and latest["time"] >= now - 3000 else None,
+            })
             return
         if path == "/api/network-stats":
             stats_dir = Path("/sys/class/net/wg0/statistics")
@@ -6054,6 +6112,7 @@ def main() -> None:
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(certfile=CERT_FILE, keyfile=KEY_FILE)
     server = ThreadingTLSServer((host, port), Handler, context)
+    threading.Thread(target=sample_network_history, name="haibox-network-sampler", daemon=True).start()
     server.serve_forever()
 
 
@@ -6597,7 +6656,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.7 - System Health"
+  echo " HAIBOX WireGuard v6.6-dev.8 - System Health"
   echo "============================================================"
   echo
 
@@ -7025,7 +7084,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.7 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6-dev.8 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"

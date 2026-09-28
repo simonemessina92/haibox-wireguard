@@ -4,6 +4,11 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### Improved in v6.6-dev.8
+
+- The Web UI service retains only the last four minutes of WireGuard traffic samples in RAM while an authenticated session exists. Overview retrieves the missing points after a browser tab is backgrounded; the last logout clears the window.
+- One shared sampler reads device counters for all viewers. The browser polls only while Overview is visible; no traffic history is written to disk.
+
 ### Improved in v6.6-dev.7
 
 - Network Statistics uses a real four-minute rolling window of browser samples. While the Web UI remains open, samples continue across its sections and older points expire automatically.
