@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+### v6.7-dev.1
+
+- Network Statistics starts with an empty four-minute window after each login, even if another Web UI session is still open. Sessions already active keep their own view of the recent traffic.
+
 ## [6.6] — 2026-09-28
 
 ### Added

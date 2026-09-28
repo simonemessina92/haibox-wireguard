@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # HAIBOX WireGuard
-# Version 6.6
+# Version 6.7-dev.1
 # Simone Messina
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -517,8 +517,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6"
-RELEASE_CHANNEL = "GOLDEN"
+SCRIPT_VERSION = "6.7-dev.1"
+RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -2456,6 +2456,7 @@ def create_session(user: str) -> str:
     SESSIONS[session_id] = {
         "user": user,
         "expires": time.time() + SESSION_TTL_SECONDS,
+        "started_ms": int(time.time() * 1000),
     }
     return session_id
 
@@ -5573,6 +5574,24 @@ def sample_network_history() -> None:
         time.sleep(max(0.1, 1 - (time.monotonic() - started)))
 
 
+def network_history_for_session(session_id: str, now: int) -> Dict[str, object]:
+    session = SESSIONS.get(session_id)
+    if session is None:
+        return {"timestamp": now, "samples": [], "latest": None}
+    cutoff = max(now - NETWORK_WINDOW_MS, int(session["started_ms"]))
+    with NETWORK_HISTORY_LOCK:
+        samples = [
+            {"time": item["time"], "rx": item["rx"], "tx": item["tx"]}
+            for item in NETWORK_HISTORY if item["time"] >= cutoff
+        ]
+        latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
+    return {
+        "timestamp": now,
+        "samples": samples,
+        "latest": latest if latest and latest["time"] >= max(cutoff, now - 3000) else None,
+    }
+
+
 REQUEST_LOCK = threading.Lock()
 
 
@@ -5759,17 +5778,9 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/network-history":
             now = int(time.time() * 1000)
-            with NETWORK_HISTORY_LOCK:
-                samples = [
-                    {"time": item["time"], "rx": item["rx"], "tx": item["tx"]}
-                    for item in NETWORK_HISTORY if item["time"] >= now - NETWORK_WINDOW_MS
-                ]
-                latest = NETWORK_HISTORY[-1] if NETWORK_HISTORY else None
             self.send_json({
                 "available": Path("/sys/class/net/wg0/statistics/rx_bytes").exists(),
-                "timestamp": now,
-                "samples": samples,
-                "latest": latest if latest and latest["time"] >= now - 3000 else None,
+                **network_history_for_session(session_id, now),
             })
             return
         if path == "/api/network-stats":
@@ -6626,7 +6637,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6 - System Health"
+  echo " HAIBOX WireGuard v6.7-dev.1 - System Health"
   echo "============================================================"
   echo
 
@@ -7054,7 +7065,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6 (GOLDEN)"
+    echo "HAIBOX WireGuard v6.7-dev.1 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
