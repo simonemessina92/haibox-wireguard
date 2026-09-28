@@ -7154,7 +7154,7 @@ menu() {
 need_root
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    --web-apply|--web-test|--health|--ensure-webui-input|--print-webui-access|--create-remote-client) ;;
+    --web-apply|--web-test|--health|--ensure-webui-input|--print-webui-access|--create-remote-client|--reset-webui-credentials|--web-remove) ;;
     *) err "Unknown option: $1"; exit 1 ;;
   esac
   run_noninteractive_command "$1"
