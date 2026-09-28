@@ -1,7 +1,7 @@
-# Release notes
+# Releases
 
-Place the final, approved Markdown notes for each release in this directory, for example `v6.5.md`.
+The notes in this directory describe approved Golden releases. GitHub Releases holds the versioned script and, for v6.4 onward, a matching SHA-256 file. Older assets stay available; a new release does not overwrite them.
 
-After Simone approves a tested build as Golden, update the script version, `README.md`, `CHANGELOG.md`, `DEVELOPMENT_BASELINE.md` acceptance record and the release notes. Promote that exact source to `main`. Update `.github/release-request.json` on `main` to the approved version, title and notes file; this change triggers the release workflow. The workflow validates the script version and Bash syntax, then creates the tag, Release script and checksum. Verify the published assets and checksum before synchronizing `develop` to the exact `main` tree for the next cycle.
+After a development build is approved, set the version and channel in `haibox-wireguard.sh`, update README, changelog, baseline and release notes, then change `.github/release-request.json` on `main`. The release workflow checks the version and Bash syntax, creates the tag and publishes the script with its checksum. Verify the assets before aligning `develop` with the published `main` tree.
 
-The example request contains a deliberately invalid `NEXT_VERSION` placeholder. Replace every value with the approved release before updating the real request. Do not update `release-request.json` for a development build; the workflow only runs when that file changes on `main`.
+`.github/release-request.example.json` is a template. Its `NEXT_VERSION` placeholder is intentionally invalid.

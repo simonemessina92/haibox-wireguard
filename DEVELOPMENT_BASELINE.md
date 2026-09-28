@@ -4,7 +4,7 @@
 
 This document is the engineering baseline for HAIBOX WireGuard development.
 
-- **Current Golden source:** `haibox-wireguard_v6.5.sh`
+- **Current Golden source:** `haibox-wireguard_v6.6.sh`
 - **Golden status:** tested on the real HAIBOX environment and working
 - **Development rule:** released Golden assets are immutable. Every new development cycle starts from the current Golden.
 - **Conflict rule:** if previous chats, notes, memories, or older scripts disagree with the Golden file, the Golden file wins.
@@ -12,10 +12,10 @@ This document is the engineering baseline for HAIBOX WireGuard development.
 
 The current Golden release has:
 
-- Version header: `6.5`
-- SHA-256: `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a`
+- Version header: `6.6`
+- SHA-256: `c7771e8bdc50c3c08b6c067a97ff1d6d49f06d2cb43c3a8ceae26df2a622cc6f`
 
-The checksum identifies the exact analyzed artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.5.
+The checksum identifies the exact approved artifact. A file with a different checksum is not this Golden, even if its filename or version header says v6.6.
 
 ## 2. Supported platform and operating model
 
@@ -118,6 +118,8 @@ Every standard DNAT mapping must exist twice:
 
 User-defined extra TCP/UDP port-forward rules are validated, stored in `EXTRA_PF_RULES`, applied to both public and hairpin paths, and checked for conflicts with reserved standard mappings.
 
+An optional DMZ forwards unclaimed TCP/UDP ports to one LAN IP. Standard mappings, Extra rules and VPS listener ports take precedence. DMZ follows the same public and WireGuard hairpin paths; an empty DMZ destination disables it.
+
 ## 6. WireGuard configuration invariants
 
 The VPS configuration must retain these routing semantics:
@@ -127,7 +129,7 @@ The VPS configuration must retain these routing semantics:
 - Remote-client peer, when created, has its own tunnel `/32` on the VPS.
 - Router configuration remains a full-tunnel client with persistent keepalive.
 - Remote-client configuration keeps `AllowedIPs = LAN_CIDR, WG_VPS_IP/32`; it is not converted into an Internet full tunnel.
-- Creating the remote client adds/reuses its key pair, rewrites the server/router/client configurations, and restarts active WireGuard without breaking the HAIBOX peer.
+- Creating the remote client adds or reuses its key pair. If the active WireGuard configuration is healthy and unchanged, a new client peer is added live; changed or unhealthy configurations use the normal restart path.
 
 ## 7. Web UI Golden behavior
 
@@ -151,6 +153,9 @@ The Web UI is part of the current Golden, not an experimental add-on.
 - Per-device RX/TX traffic accounting from the HAIBOX perspective
 - POST/Redirect/GET prevents browser refresh from replaying state-changing actions
 - Transient action messages dismiss automatically after 10 seconds
+- First-run wizard after password replacement, with router LAN setup, persistent Apply, router and optional client profiles, QR codes and active router verification
+- Optional Domain setting changes Public Services links only, without changing DNS, WireGuard endpoints or forwarding
+- Four-minute traffic history held in RAM while a Web UI session exists; the last logout clears it and returning to Overview reloads the current window
 
 The live dashboard polls only while its tab is active and the page is visible. It reports:
 
@@ -222,7 +227,7 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 
 Unknown flags must fail rather than being silently ignored.
 
-## 12. Change-control rules for v6.5+
+## 12. Change-control rules for v6.6+
 
 1. Never edit or overwrite a published Golden release asset.
 2. Start from the current Golden, update the version consistently, and work only on `develop`.
@@ -330,6 +335,11 @@ Unknown flags must fail rather than being silently ignored.
 - [ ] Configured LAN devices show online/offline according to ICMP reachability.
 - [ ] Dashboard polling stops when its tab/page is not active and resumes when visible.
 - [ ] Network statistics update without breaking the configuration form.
+- [ ] On a fresh installation, the wizard applies and persists the selected LAN and keeps existing keys across refresh.
+- [ ] Router and client profiles offer correct copy, download and QR actions; the router check requires active reachability.
+- [ ] DMZ leaves fixed, Extra and VPS ports untouched on public and hairpin paths.
+- [ ] Domain changes Public Services links only; removing it restores public-IP links.
+- [ ] Network Statistics shows the last four real minutes after returning from a background browser tab and discards older samples.
 
 ### I. Persistence and reboot
 
@@ -369,6 +379,7 @@ Complete this table only after physical regression testing. “Static pass” or
 | v6.3 | `aa01be1c788310fd10675a437cf6efe442387e1a3dad21b8147b92bd783e35d2` | Previously completed | Recorded in project history | Recorded in project history | Simone Messina | **GOLDEN** | Immutable source baseline |
 | v6.4 | `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated first on Amsterdam test VPS, then installed on Italy production VPS |
 | v6.5 | `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated with live streaming, Remote VPN Client, dashboard and browser refresh on Amsterdam test VPS |
+| v6.6 | `c7771e8bdc50c3c08b6c067a97ff1d6d49f06d2cb43c3a8ceae26df2a622cc6f` | 2026-09-28 | Debian 13 | HAIBOX router and Amsterdam test VPS | Simone Messina | **GOLDEN** | Wizard, live streaming, configuration and four-minute graph accepted after browser background/return test |
 
 ## 15. Definition of done for the next Golden
 

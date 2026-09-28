@@ -4,50 +4,24 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-### Fixed in v6.6-dev.9
+## [6.6] — 2026-09-28
 
-- Overview reloads the complete four-minute VPS traffic window when the browser returns from a background tab, rather than trying to merge missed samples into its old local chart. Each reply contains only timestamp and RX/TX for historical points; per-device rates remain available for the latest point.
+Golden release approved after testing the wizard, router VPN, streaming and four-minute traffic view on the Amsterdam test VPS.
 
-### Improved in v6.6-dev.8
+### Added
 
-- The Web UI service retains only the last four minutes of WireGuard traffic samples in RAM while an authenticated session exists. Overview retrieves the missing points after a browser tab is backgrounded; the last logout clears the window.
-- One shared sampler reads device counters for all viewers. The browser polls only while Overview is visible; no traffic history is written to disk.
+- First-run wizard after the mandatory password change: router LAN setup, automatic Apply and persistence, router profile and active tunnel check.
+- Router and optional Remote VPN Client profiles with copy, `.conf` download and QR codes, available in the wizard and VPN Profiles.
+- DMZ for unclaimed public ports, behind fixed mappings, Extra rules and VPS service ports.
+- Optional Domain setting for Public Services links. DNS remains external to HAIBOX WireGuard.
 
-### Improved in v6.6-dev.7
+### Changed
 
-- Network Statistics uses a real four-minute rolling window of browser samples. While the Web UI remains open, samples continue across its sections and older points expire automatically.
-- The chart leaves a gap if the browser suspends polling; refresh or logout starts a fresh window. No traffic history is saved on the VPS.
+- Apply preserves a healthy WireGuard interface when its configuration has not changed; Make Persistent avoids restarting active services unnecessarily.
+- Network Statistics shows a four-minute window collected in VPS memory while the Web UI has an authenticated session. The browser loads the full window when Overview becomes visible again.
+- Wizard steps use a consistent card size with internal scrolling for long profiles and QR codes.
 
-### Improved in v6.6-dev.6
-
-- The three first-run wizard steps share one viewport-sized card. Profile details and QR codes open on demand, long content scrolls inside the card and navigation remains visible at the bottom.
-
-### Improved in v6.6-dev.5
-
-- Configuration → Domain now uses the standard dark input style and shows Add only before a domain is saved, then Remove only while one is active. The domain indicator has been removed from Overview; the Public Services links still use the selected domain.
-
-### Added in v6.6-dev.4
-
-- Optional hostname in Configuration → Public Links. Add uses it in Public Services links and service URLs; Remove restores the VPS public IP. Saved independently of Apply, without changing DNS, VPN endpoints or forwarding rules.
-
-### Improved in v6.6-dev.3
-
-- Apply keeps a healthy WireGuard interface running when its generated configuration has not changed; changed or unhealthy runtime state still uses the existing restart path.
-- Make Persistent enables the firewall and WireGuard services without restarting already active services and replaying the firewall a second time.
-- Apply reports elapsed validation, WireGuard, firewall and total times in Last Output; the button displays an in-progress indicator while the request runs.
-
-### Added in v6.6-dev.2
-
-- Router-first profile switch in the initial wizard, with an optional Remote VPN Client profile for Android, iOS and computers; both profiles have authenticated QR codes in the wizard and VPN Profiles.
-- Connection check animates a pulsing circle and shows a green check only after active router tunnel verification.
-- Optional DMZ destination in Configuration: fixed and Extra mappings take precedence; VPS listener ports are excluded; public and WireGuard hairpin paths use the same fallback.
-- Existing Remote VPN Client keys and live router tunnel are kept when creating or refreshing a client that already exists. A new peer is added live without restarting WireGuard.
-
-### Added in v6.6-dev.1
-
-- First-run browser wizard for router LAN, automatic Apply + Make Persistent, router WireGuard profile with copy/download/QR, and active tunnel verification before Overview.
-- Password replacement continues in the authenticated setup session. A refresh restarts the wizard display with saved values and reuses existing WireGuard keys and generated profile.
-- Existing installations with an applied configuration retain their dashboard without seeing the wizard.
+Existing installations keep their applied configuration and skip the first-run wizard. The wizard reuses generated keys when setup is resumed.
 
 ## [6.5] — 2026-09-18
 
@@ -167,7 +141,8 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.5...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.6...develop
+[6.6]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.6
 [6.5]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5
 [6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
 [6.3]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.3

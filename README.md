@@ -1,135 +1,60 @@
 # HAIBOX WireGuard
 
-Secure remote access and public service delivery for portable HAIBOX systems through a WireGuard-enabled VPS.
+WireGuard and port forwarding for a HAIBOX behind a VPS with a public IPv4 address. The VPS provides the public endpoint; the HAIBOX router keeps the tunnel open from its own network.
 
-[![Latest release](https://img.shields.io/github/v/release/simonemessina92/haibox-wireguard?display_name=tag&label=Golden)](https://github.com/simonemessina92/haibox-wireguard/releases/latest)
-[![Platform](https://img.shields.io/badge/VPS-Debian%20%7C%20Ubuntu-00a3e0)](#requirements)
-[![WireGuard](https://img.shields.io/badge/VPN-WireGuard-88171a)](https://www.wireguard.com/)
+## Install v6.6
 
-HAIBOX WireGuard turns a public Debian or Ubuntu VPS into the secure network edge for a HAIBOX deployment. It connects the HAIBOX router to the VPS, provides Internet breakout through the VPS public IPv4, publishes selected services and offers an HTTPS control panel for configuration and monitoring.
-
-## Get the latest Golden
-
-Install the latest stable release on a clean VPS as `root`:
+On a Debian or Ubuntu VPS, run as root:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/main/install.sh)
 ```
 
-[Download v6.5 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.5/haibox-wireguard_v6.5.sh) · [SHA-256 checksum](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.5/haibox-wireguard_v6.5.sh.sha256) · [Release notes](https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5)
+The installer downloads the latest Golden release, checks its SHA-256 file and starts the setup menu. Choose **INSTALL + WEB UI**, then open `https://VPS_PUBLIC_IP:65000`. WireGuard uses UDP `443` by default. The first login is `admin` / `password`; you must change that password before setup continues.
 
-## Architecture
+[v6.6 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.6/haibox-wireguard_v6.6.sh) · [SHA-256](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.6/haibox-wireguard_v6.6.sh.sha256) · [Release notes](releases/v6.6.md)
 
-```mermaid
-flowchart LR
-    Internet(("Internet")) -->|"Public IPv4"| VPS["VPS Edge<br/>WireGuard · NAT · HTTPS UI"]
-    Remote["Remote VPN Client"] -. "Optional access" .-> VPS
-    VPS == "Encrypted tunnel · UDP 443" ==> Router["HAIBOX Router<br/>10.66.66.2"]
-    Router --> LAN["HAIBOX LAN · 192.168.10.0/24<br/>StreamHub · HSG/HMG · Makito · Windows · Proxmox"]
+## First setup
 
-    classDef edge fill:#082f49,stroke:#00a3e0,color:#f5fbff,stroke-width:2px
-    classDef site fill:#10231d,stroke:#37d39b,color:#f5fbff,stroke-width:2px
-    classDef client fill:#241d38,stroke:#a78bfa,color:#f5fbff
-    class VPS edge
-    class Router,LAN site
-    class Remote client
-```
+The wizard asks for the router LAN address and subnet, applies the VPS configuration and shows the WireGuard profile for the HAIBOX router. Copy or download the `.conf`, or use its QR code. A separate tab offers a Remote VPN Client profile for a phone or computer. Once the router tunnel is reachable, finish the wizard to open Overview.
 
-The VPS handles the public edge, routing and controlled port forwarding. The HAIBOX router maintains the encrypted tunnel and routes the local `192.168.10.0/24` network without requiring inbound connectivity at the venue.
+If the browser closes during setup, log back in and continue with the saved network configuration and keys. An existing installation with an applied configuration goes straight to the control panel.
 
-## Golden v6.5
+## What v6.6 includes
 
-- Automated WireGuard server deployment and HAIBOX router configuration
-- Full-tunnel Internet breakout through the VPS public IPv4
-- Public DNAT and HAIBOX-side hairpin access for configured services
-- Persistent routing, NAT and firewall rules
-- Optional Remote VPN Client configuration
-- Authenticated HTTPS control panel on TCP `65000`
-- Compact operational Overview with direct links to published HAIBOX services
-- Live WireGuard peer and HAIBOX LAN monitoring with handshake and ICMP RTT
-- Live RX/TX graph plus per-device traffic accounting from the HAIBOX perspective
-- Clear Configuration and VPN Profiles workspaces
-- Expandable public-port redirect summary and compact downloadable client profiles
-- Safe POST/Redirect/GET actions: browser refresh never repeats Apply or restarts WireGuard
-- Proxmox HTTPS on TCP `8006` always published through the VPS
-- Clear validation errors, system health diagnostics and transient action messages
-- Sanitized support bundle for troubleshooting
-- Build identity, release channel and installed-script SHA-256
-- Automatic first-login setup with mandatory password replacement
+- **Overview:** active WireGuard peers, HAIBOX LAN device status, public service links and a four-minute RX/TX graph. The VPS keeps only the current four-minute window in memory while a Web UI session is active; returning to the browser restores that window.
+- **Configuration:** core network values, extra port forwards, DMZ and an optional **Domain** for Public Services links. The domain changes Web UI links only; DNS is configured separately. DMZ receives ports left free by built-in mappings, extra rules and VPS services.
+- **VPN Profiles:** router and Remote VPN Client configurations with copy, download and QR actions.
+- **Apply and persistence:** a healthy, unchanged WireGuard interface is kept running; configuration changes still use the normal apply path. Saved rules and services survive a VPS reboot.
 
-The networking behavior in v6.5 preserves the physically tested Golden baseline. The release was validated with live streaming traffic, repeated browser refreshes, Remote VPN Client creation and the complete Web UI workflow on the Amsterdam HAIBOX test environment.
+The router provides full-tunnel Internet access through the VPS. Published HAIBOX services use public DNAT and WireGuard-side hairpin rules. The Remote VPN Client reaches the HAIBOX LAN without using the VPS as its general Internet gateway.
 
-## Stable installation
+## Default addresses
 
-### Requirements
-
-- A clean Debian or Ubuntu VPS
-- A public IPv4 address
-- Root access
-- UDP `443` available for WireGuard
-- TCP `65000` available for the management interface
-
-After running the installer shown above, select `INSTALL + WEB UI`, then open:
-
-```text
-https://VPS_PUBLIC_IP:65000
-```
-
-Initial credentials:
-
-```text
-Username: admin
-Password: password
-```
-
-A new password is required before the control panel becomes available. The stable installer downloads the latest published Golden release and verifies its SHA-256 against the matching release checksum before installation.
-
-## Default network layout
-
-| Component | Default address |
-|---|---:|
-| HAIBOX Router | `192.168.10.1` |
+| Component | Address |
+|---|---|
+| Router LAN | `192.168.10.1/24` |
 | StreamHub | `192.168.10.101` |
 | HSG/HMG | `192.168.10.102` |
 | Makito X4E | `192.168.10.103` |
-| Windows Orchestrator | `192.168.10.104` |
+| Windows | `192.168.10.104` |
 | Proxmox | `192.168.10.250` |
 | VPS WireGuard | `10.66.66.1` |
-| HAIBOX Router WireGuard | `10.66.66.2` |
+| Router WireGuard | `10.66.66.2` |
 | Remote VPN Client | `10.66.66.3` |
 
-Addresses, service ports and forwarding rules can be adjusted from the Web UI before applying the configuration.
+LAN values can be changed during setup or later in Configuration. The VPS must have a public IPv4 address, root access, UDP `443` available for WireGuard and TCP `65000` available for the Web UI unless you change those ports.
 
-## Development builds
+## Versions
 
-The `main` branch contains the latest Golden release. After each approved release, `develop` is synchronized to that exact Golden before the next development build starts. The first new change receives the `-dev.1` suffix. New work is validated on `develop` and can be installed only on a dedicated test environment with:
+`main` contains the latest Golden release. Approved assets and checksums for v6.4, v6.5 and v6.6 remain in [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases); v6.3 and earlier assets remain there without checksums where none were published. `develop` starts from the same source as the current Golden and changes only when the next dev build begins.
+
+Use a separate test VPS for development builds:
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireguard/develop/install-dev.sh)
 ```
 
-Development builds may change an active VPS configuration and should not be used as production releases. See [`DEVELOPMENT_BASELINE.md`](DEVELOPMENT_BASELINE.md) for engineering constraints and regression checks, and [`CHANGELOG.md`](CHANGELOG.md) for release history.
+[Changelog](CHANGELOG.md) · [Development baseline](DEVELOPMENT_BASELINE.md) · [Release notes](releases/)
 
-The current `6.6-dev.9` build adds a first-run setup wizard on clean installations. After replacing the initial password, enter the router LAN IP and choose a /16–/24 prefix. The wizard applies and persists the configuration, presents the router profile first and offers a separate support-client profile for Android, iOS and computers. Both profiles offer text, `.conf` and QR. The router check shows a green confirmation only after active tunnel reachability. Refreshing the wizard starts again at the LAN screen with saved values. Existing applied installations continue directly to the dashboard. Apply shows elapsed progress and avoids redundant WireGuard and firewall service restarts when the runtime is already healthy.
-
-In the development Configuration view, an optional DMZ IP receives public TCP and UDP ports left unclaimed by standard HAIBOX mappings, Extra rules and VPS services. The same precedence applies to WireGuard hairpin traffic. Keep the destination blank to disable DMZ.
-
-Configuration → Domain accepts an optional hostname for Public Services links and service URLs. Configure DNS or dynamic DNS separately. Add saves it immediately; when a domain is active, Remove restores links based on the VPS public IP. This only changes Web UI navigation. The first-run wizard has equally sized steps with fixed navigation and expandable QR codes; overflow scrolls inside the wizard card.
-
-Network Statistics displays the last four minutes of traffic, sampled by the Web UI service while an authenticated session exists. Old samples expire automatically in a bounded RAM buffer. When the browser tab is backgrounded, returning to Overview loads the complete current window from the VPS. The final logout clears the window. No traffic history is written to disk; a service restart also starts a new window.
-
-## Releases and integrity
-
-Each Golden release includes:
-
-- A versioned installation script
-- A SHA-256 checksum file
-- Release notes describing the validated changes
-
-Previous Golden versions remain available from [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases).
-
-## Project
-
-Designed and developed by **Simone Messina**.
-
-This software is provided as-is, without warranty. Review the configuration and exposed services before using it on production systems.
+Maintained by Simone Messina.

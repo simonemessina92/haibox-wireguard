@@ -1,37 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ==============================================================================
 # HAIBOX WireGuard
-# Version 6.6-dev.9
-# ==============================================================================
-#
-# VPS-side deployment and management utility for a HAIBOX WireGuard environment.
-#
-# Core functions:
-#   - Creates and manages the WireGuard server on a Debian/Ubuntu VPS.
-#   - Connects the HAIBOX router as a WireGuard peer.
-#   - Provides Internet breakout for devices behind the HAIBOX router.
-#   - Provides DNAT and hairpin DNAT for selected HAIBOX services.
-#   - Generates a downloadable WireGuard configuration for the HAIBOX router.
-#   - Generates an optional remote-client configuration for direct access to
-#     the HAIBOX LAN through the VPS.
-#   - Installs persistent routing, NAT and forwarding rules.
-#   - Provides an optional HTTPS management Web UI.
-#
-# Default HAIBOX service mappings:
-#   - StreamHub service ports and UDP 7900-7940.
-#   - Makito X4E HTTPS GUI and UDP 30000-30004.
-#   - HSG/HMG HTTPS GUI, SSH, RTMP and SRT UDP 9000-9100.
-#   - Proxmox HTTPS GUI, always published on TCP 8006.
-#
-# Network values and service addresses can be changed during setup.
-#
-# Project: HAIBOX WireGuard
-# Author:  Simone Messina
-#
-# Version 6.6-dev.9 refreshes the chart from the complete four-minute server window.
-# ==============================================================================
+# Version 6.6
+# Simone Messina
 
 STATE_FILE="/root/haibox_wg_state.conf"
 APPLIED_STATE_FILE="/root/haibox_wg_applied.conf"
@@ -545,8 +517,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.6-dev.9"
-RELEASE_CHANNEL = "DEVELOPMENT"
+SCRIPT_VERSION = "6.6"
+RELEASE_CHANNEL = "GOLDEN"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -5605,7 +5577,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.6-dev.9"
+    server_version = "HAIBOX-WebUI/6.6"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6654,7 +6626,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.6-dev.9 - System Health"
+  echo " HAIBOX WireGuard v6.6 - System Health"
   echo "============================================================"
   echo
 
@@ -7082,7 +7054,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.6-dev.9 (DEVELOPMENT)"
+    echo "HAIBOX WireGuard v6.6 (GOLDEN)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
