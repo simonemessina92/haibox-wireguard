@@ -24,6 +24,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # New releases receive their notes in the release workflow.
+          if git diff --name-only HEAD^ HEAD | grep -Fxq ".github/release-request.json"; then exit 0; fi
           version="$(jq -er '.version' .github/release-request.json)"
           notes="releases/v${version}.md"
           tag="v${version}"

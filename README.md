@@ -2,7 +2,7 @@
 
 WireGuard and port forwarding for a HAIBOX behind a VPS with a public IPv4 address. The VPS provides the public endpoint; the HAIBOX router keeps the tunnel open from its own network.
 
-## Install v6.6
+## Install v6.7
 
 On a Debian or Ubuntu VPS, run as root:
 
@@ -12,7 +12,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/simonemessina92/haibox-wireg
 
 The installer downloads the latest Golden release, checks its SHA-256 file and starts the setup menu. Choose **INSTALL + WEB UI**, then open `https://VPS_PUBLIC_IP:65000`. WireGuard uses UDP `443` by default. The first login is `admin` / `password`; you must change that password before setup continues.
 
-[v6.6 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.6/haibox-wireguard_v6.6.sh) · [SHA-256](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.6/haibox-wireguard_v6.6.sh.sha256) · [Release notes](releases/v6.6.md)
+[v6.7 script](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.7/haibox-wireguard_v6.7.sh) · [SHA-256](https://github.com/simonemessina92/haibox-wireguard/releases/download/v6.7/haibox-wireguard_v6.7.sh.sha256) · [Release notes](releases/v6.7.md)
 
 ## First setup
 
@@ -20,10 +20,11 @@ The wizard asks for the router LAN address and subnet, applies the VPS configura
 
 If the browser closes during setup, log back in and continue with the saved network configuration and keys. An existing installation with an applied configuration goes straight to the control panel.
 
-## What v6.6 includes
+## What v6.7 includes
 
 - **Overview:** active WireGuard peers, HAIBOX LAN device status, public service links and a four-minute RX/TX graph. The VPS keeps only the current four-minute window in memory while a Web UI session is active; returning to the browser restores that window.
 - **Configuration:** core network values, extra port forwards, DMZ and an optional **Domain** for Public Services links. The domain changes Web UI links only; DNS is configured separately. DMZ receives ports left free by built-in mappings, extra rules and VPS services.
+- **Remove All:** in Configuration, type `REMOVE` to uninstall after a ten-second notice. The terminal menu remains available with its `YES` confirmation.
 - **VPN Profiles:** router and Remote VPN Client configurations with copy, download and QR actions.
 - **Apply and persistence:** a healthy, unchanged WireGuard interface is kept running; configuration changes still use the normal apply path. Saved rules and services survive a VPS reboot.
 
@@ -47,7 +48,7 @@ LAN values can be changed during setup or later in Configuration. The VPS must h
 
 ## Versions
 
-`main` contains the latest Golden release. Approved assets and checksums for v6.4, v6.5 and v6.6 remain in [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases); v6.3 and earlier assets remain there without checksums where none were published. `develop` is aligned with the current Golden until the next dev build begins.
+`main` contains the latest Golden release. Approved assets and checksums for v6.4, v6.5, v6.6 and v6.7 remain in [GitHub Releases](https://github.com/simonemessina92/haibox-wireguard/releases); v6.3 and earlier assets remain there without checksums where none were published. `develop` is aligned with the current Golden until the next development build.
 
 Use a separate test VPS for development builds:
 

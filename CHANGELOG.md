@@ -4,6 +4,10 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
+## [6.7] — 2026-09-30
+
+- Configuration has a Remove All section. Type `REMOVE` to schedule the existing uninstall routine from the Web UI; a ten-second notice appears before the service is removed.
+
 
 ## [6.6] — 2026-09-28
 
@@ -142,7 +146,8 @@ Golden baseline for subsequent development.
 
 The complete v6.0, v6.1, and v6.2 artifacts and notes remain available in GitHub Releases.
 
-[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.6...develop
+[Unreleased]: https://github.com/simonemessina92/haibox-wireguard/compare/v6.7...develop
+[6.7]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.7
 [6.6]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.6
 [6.5]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.5
 [6.4]: https://github.com/simonemessina92/haibox-wireguard/releases/tag/v6.4
