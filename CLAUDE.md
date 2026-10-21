@@ -91,12 +91,9 @@ Critical coupling — do not break:
   `grep -n '6\.7\|SCRIPT_VERSION\|RELEASE_CHANNEL' haibox-wireguard.sh`
   (replace `6.7` with the current version).
 
-Known discrepancy (as of v6.7, not yet fixed): `--reset-webui-credentials` is
-handled in `run_noninteractive_command` and listed in the baseline, but it is
-missing from the final allow-list, so on the command line it fails with
-"Unknown option" (menu option 9 works). `--web-remove` (added in v6.7) is in
-the code but not in baseline §11. Fix only with the maintainer's approval, as a
-normal development change.
+Fixed in v6.8-dev.1: `--reset-webui-credentials` was missing from the final
+allow-list (since v6.4) and failed with "Unknown option"; `--web-remove` is
+now listed in baseline §11.
 
 ## 4. Checks you can run here (static only)
 

@@ -224,6 +224,7 @@ Critical Golden rule: an old WireGuard handshake is diagnostic history only. The
 - `--ensure-webui-input`
 - `--print-webui-access`
 - `--reset-webui-credentials`
+- `--web-remove` (used by the Web UI Remove All action after its own `REMOVE` confirmation; removes without a terminal prompt)
 
 Unknown flags must fail rather than being silently ignored.
 
