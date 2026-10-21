@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # HAIBOX WireGuard
-# Version 6.7
+# Version 6.8-dev.1
 # Simone Messina
 
 STATE_FILE="/root/haibox_wg_state.conf"
@@ -517,8 +517,8 @@ WEBUI_SERVICE_NAME = "haibox-webui.service"
 CERT_FILE = "/opt/haibox-webui/haibox_webui.crt"
 KEY_FILE = "/opt/haibox-webui/haibox_webui.key"
 APPLIED_STATE_FILE = "/root/haibox_wg_applied.conf"
-SCRIPT_VERSION = "6.7"
-RELEASE_CHANNEL = "GOLDEN"
+SCRIPT_VERSION = "6.8-dev.1"
+RELEASE_CHANNEL = "DEVELOPMENT"
 WIZARD_PENDING_FILE = "/root/haibox_wizard_pending"
 LOGO_URL = (
     "data:image/png;base64,"
@@ -5633,7 +5633,7 @@ REQUEST_LOCK = threading.Lock()
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "HAIBOX-WebUI/6.7"
+    server_version = "HAIBOX-WebUI/6.8-dev.1"
 
     def log_message(self, fmt: str, *args: object) -> None:
         return
@@ -6689,7 +6689,7 @@ system_health() {
 
   echo
   echo "============================================================"
-  echo " HAIBOX WireGuard v6.7 - System Health"
+  echo " HAIBOX WireGuard v6.8-dev.1 - System Health"
   echo "============================================================"
   echo
 
@@ -7122,7 +7122,7 @@ menu() {
     init_defaults
 
     echo
-    echo "HAIBOX WireGuard v6.7 (GOLDEN)"
+    echo "HAIBOX WireGuard v6.8-dev.1 (DEVELOPMENT)"
     echo "1) INSTALL + WEB UI"
     echo "2) APPLY (terminal fallback)"
     echo "3) TEST"
@@ -7154,7 +7154,7 @@ menu() {
 need_root
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    --web-apply|--web-test|--health|--ensure-webui-input|--print-webui-access|--create-remote-client|--web-remove) ;;
+    --web-apply|--web-test|--health|--ensure-webui-input|--print-webui-access|--create-remote-client|--reset-webui-credentials|--web-remove) ;;
     *) err "Unknown option: $1"; exit 1 ;;
   esac
   run_noninteractive_command "$1"
