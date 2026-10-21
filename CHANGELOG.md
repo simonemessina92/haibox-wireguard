@@ -4,9 +4,9 @@ All notable HAIBOX WireGuard releases are recorded here. Development builds are 
 
 ## [Unreleased]
 
-### Fixed in v6.8-dev.1
+## [6.8] — 2026-10-21
 
-- `--reset-webui-credentials` now works from the command line. It was handled by the script but missing from the accepted-options list, so it failed with "Unknown option" since v6.4. Menu option 9 was not affected.
+- Fixed `--reset-webui-credentials` on the command line. The option was handled by the script but missing from the accepted-options list, so it failed with "Unknown option" since v6.4. Menu option 9 was not affected.
 
 ## [6.7] — 2026-09-30
 
