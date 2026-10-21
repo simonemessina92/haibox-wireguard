@@ -88,10 +88,10 @@ Critical coupling — do not break:
   System Health banner and the menu banner (`vX.Y (GOLDEN)` /
   `vX.Y-dev.N (DEVELOPMENT)`). Header line 5 must stay exactly
   `# Version X.Y` for a release. Find them with
-  `grep -n '6\.7\|SCRIPT_VERSION\|RELEASE_CHANNEL' haibox-wireguard.sh`
-  (replace `6.7` with the current version).
+  `grep -n '6\.8\|SCRIPT_VERSION\|RELEASE_CHANNEL' haibox-wireguard.sh`
+  (replace `6.8` with the current version).
 
-Fixed in v6.8-dev.1: `--reset-webui-credentials` was missing from the final
+Fixed in v6.8: `--reset-webui-credentials` was missing from the final
 allow-list (since v6.4) and failed with "Unknown option"; `--web-remove` is
 now listed in baseline §11.
 
@@ -102,7 +102,7 @@ HAIBOX router. Never run `haibox-wireguard.sh`, `install.sh` or
 `install-dev.sh` in a Claude session: they require root and rewrite
 WireGuard, iptables, sysctl, systemd units and packages on the host.
 
-Safe static checks (all pass on v6.7):
+Safe static checks (all pass on v6.8):
 
 ```bash
 # Bash syntax and line endings
@@ -115,7 +115,7 @@ sed -n "/<<'PYEOF'$/,/^PYEOF$/p" haibox-wireguard.sh | sed '1d;$d' > "$tmp/webui
 python3 -m py_compile "$tmp/webui.py"
 # PYDMZ and PYVALIDATE heredocs can be checked the same way.
 
-# ShellCheck (pip install shellcheck-py if missing). v6.7 baseline at -S warning:
+# ShellCheck (pip install shellcheck-py if missing). Baseline at -S warning:
 # SC2034 EXPOSE_PROXMOX_GUI, SC2034 label, SC1090 non-constant source. Accepted.
 shellcheck -S warning haibox-wireguard.sh install.sh install-dev.sh
 
@@ -146,9 +146,9 @@ VPS + HAIBOX and the maintainer confirms it.
 ## 5. Branches and workflow
 
 - `main` — the current Golden only. Its `haibox-wireguard.sh` must be
-  byte-identical to the latest release asset (v6.7: SHA-256
-  `cc2ca8071d426d2d4e6711b48e7766c5ee2b682c66d5a8bf11de5ad7d53b78b6`, commit
-  `30299be`, tag `v6.7`).
+  byte-identical to the latest release asset. The current Golden's SHA-256 is
+  in `DEVELOPMENT_BASELINE.md` §1 (v6.8 since 2026-10-21; v6.7 was
+  `cc2ca80…` at commit `30299be`).
 - `develop` — development. All work happens here or on a feature branch with a
   PR into `develop`. Test VPSs install it with `install-dev.sh`.
 - `claude/backup-pre-claude-migration` — snapshot of `main` at `30299be` taken
