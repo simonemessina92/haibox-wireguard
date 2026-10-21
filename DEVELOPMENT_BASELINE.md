@@ -380,7 +380,6 @@ Complete this table only after physical regression testing. “Static pass” or
 | v6.4 | `058801a6ff50e49933cc58e38c2e1320e8262e19251daf58a6fbc30dc892143a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated first on Amsterdam test VPS, then installed on Italy production VPS |
 | v6.5 | `5cfce2477f9bb1af119fe00502055ad21507203a604c017e3205596d85b9c21a` | 2026-09-18 | Debian 13 | HAIBOX physical test environment | Simone Messina | **GOLDEN** | Validated with live streaming, Remote VPN Client, dashboard and browser refresh on Amsterdam test VPS |
 | v6.6 | `a96bf36cd11454f34e38edd28ebe5c94d589cae3c17acc56ec6ba71e5abc473b` | 2026-09-28 | Debian 13 | HAIBOX router and Amsterdam test VPS | Simone Messina | **GOLDEN** | Graph login reset correction validated on test VPS; original published asset SHA-256 was `c7771e8bdc50c3c08b6c067a97ff1d6d49f06d2cb43c3a8ceae26df2a622cc6f` at commit `6dca330` |
-
 | v6.7 | `cc2ca8071d426d2d4e6711b48e7766c5ee2b682c66d5a8bf11de5ad7d53b78b6` | 2026-09-30 | Debian 13 | Test VPS | Simone Messina | **GOLDEN** | Web UI uninstall and reinstall tested; no output from the residue checks. Network core unchanged from v6.6. |
 
 ## 15. Definition of done for the next Golden
